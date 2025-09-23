@@ -160,14 +160,23 @@ if uploaded_file:
         df = pd.read_csv("delhi_environmental_data.csv")
 
         # Pivot pollutants
-        if "parameter" in df.columns and "value" in df.columns:
-            df = df.pivot_table(
-                index=["location_name","city","latitude","longitude","timestamp"],
-                columns="parameter",
-                values="value",
-                aggfunc="first"
-            ).reset_index()
-            df.columns.name = None
+        # Pivot pollutants safely
+if "parameter" in df.columns and "value" in df.columns:
+    expected_cols = ["location_name", "city", "latitude", "longitude", "timestamp"]
+    missing = [col for col in expected_cols if col not in df.columns]
+
+    if missing:
+        st.error(f"⚠️ Missing columns for pivot: {missing}")
+    else:
+        df = df.pivot_table(
+            index=expected_cols,
+            columns="parameter",
+            values="value",
+            aggfunc="first"
+        ).reset_index()
+        df.columns.name = None
+        st.success("✅ Pivot table created successfully")
+
 
         # Fill missing pollutants
         for col in POLLUTANTS:
