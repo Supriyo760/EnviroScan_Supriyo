@@ -81,23 +81,24 @@ def extract_osm_features(lat, lon, radius=100):
 
     return features
 
-def build_dataset(city, lat, lon, aq_csv_path, openweather_key):
-    print(f"Collecting AQ data for {city} from CSV...")
-
-    # --- Load AQ CSV safely ---
+def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
+    # aq_csv_file can be a path (str) or a file-like object (from Streamlit)
     try:
         df_aq = pd.read_csv(
-            aq_csv_path,
-            sep=",",
-            engine="python",
+            aq_csv_file,
             skiprows=2,
-            on_bad_lines="skip"
+            on_bad_lines="skip",
+            engine="python"
         )
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
     except Exception as e:
         print(f"⚠️ Failed to load AQ CSV: {e}")
         return pd.DataFrame(), {}
+
+    # --- Continue the rest of the function as before ---
+    # weather, OSM features, metadata, etc.
+
 
     # --- Horizontal pivot preview ---
     try:
@@ -182,8 +183,23 @@ def consolidate_dataset(df_aq, df_meta, filename):
 city = "Delhi"
 lat, lon = 28.7041, 77.1025
 
-uploaded = files.upload()
-aq_csv_path = list(uploaded.keys())[0]
+import streamlit as st
+import pandas as pd
+
+# File upload
+uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+
+if uploaded_file is not None:
+    # Read CSV
+    df_aq, df_meta = build_dataset(city, lat, lon, uploaded_file, openweather_key)
+    
+    # Save datasets
+    save_datasets(df_aq, "delhi_aq_data")
+    save_datasets(df_meta, "delhi_meta_data")
+    consolidate_dataset(df_aq, df_meta, "delhi_environmental_data")
+
+    st.write("✅ File processed and datasets saved.")
+
 print(f"📂 Using uploaded file: {aq_csv_path}")
 
 df_aq, df_meta = build_dataset(city, lat, lon, aq_csv_path, openweather_key)
