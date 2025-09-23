@@ -15,14 +15,25 @@ import numpy as np
 import osmnx as ox
 from datetime import datetime, timezone
 from sklearn.preprocessing import StandardScaler
-from google.colab import files
+
 
 def option1_upload_and_save():
-    uploaded = files.upload()
-    for fn in uploaded.keys():
-        print(f"📂 Uploaded file: {fn}")
-        df = pd.read_csv(fn, skiprows=2, on_bad_lines="skip", engine="python")
-        save_datasets(df, "uploaded_dataset")
+    import streamlit as st
+import pandas as pd
+
+# File upload
+uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+
+if uploaded_file is not None:
+    # Read CSV directly from uploaded file
+    df = pd.read_csv(uploaded_file, skiprows=2, on_bad_lines="skip", engine="python")
+    
+    # Preview the dataframe
+    st.write("Preview of your file:")
+    st.dataframe(df.head())
+    
+    # Save dataset (if you have a save_datasets function)
+    save_datasets(df, "uploaded_dataset")
 
 # Weather API Key
 openweather_key = "f931ecc3a4864ae98a35630e7a9f5bc2"
