@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/19NAfuYkYngHmsos0L2t5jgY62lBVSEJz
 """
 
-!pip install requests pandas osmnx --quiet
+
 
 import requests
 import pandas as pd
