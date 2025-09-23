@@ -5,3 +5,6 @@ requests
 osmnx
 scikit-learn
 matplotlib
+seaborn
+geopandas
+shapely
