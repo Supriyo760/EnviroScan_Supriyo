@@ -56,12 +56,29 @@ def extract_osm_features(lat, lon, radius=100):
 
 def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     try:
-        df_aq = pd.read_csv(aq_csv_file, skiprows=2, on_bad_lines="skip", engine="python")
+        df_aq = pd.read_csv(
+            aq_csv_file,
+            skiprows=2,
+            on_bad_lines="skip",
+            engine="python"
+        )
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
     except Exception as e:
-        st.error(f"Failed to load CSV: {e}")
-        return pd.DataFrame(), {}
+        print(f"⚠️ Failed to load AQ CSV: {e}")
+        return pd.DataFrame(), pd.DataFrame()
+
+        # ✅ Create metadata as a DataFrame
+    metadata = {
+        "city": city,
+        "latitude": lat,
+        "longitude": lon,
+        "records": len(df_aq),
+        "source": "OpenAQ"
+    }
+    df_meta = pd.DataFrame([metadata])
+
+    return df_aq, df_meta
 
     # Weather
     weather_data = get_weather(lat, lon, openweather_key)
