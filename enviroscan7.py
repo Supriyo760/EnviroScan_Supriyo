@@ -167,27 +167,28 @@ if uploaded_file:
 
         # Pivot pollutants
         # Pivot pollutants safely
-        if "parameter" in df.columns and "value" in df.columns:
-            expected_cols = ["location_name", "city", "latitude", "longitude", "timestamp"]
-            missing = [col for col in expected_cols if col not in df.columns]
+        # --- Determine pivot index dynamically ---
+        pivot_index = [col for col in ["location_name", "city", "latitude", "longitude", "timestamp"] if col in df.columns]
         
-            if missing:
-                st.error(f"⚠️ Missing columns for pivot: {missing}")
-            else:
-                df = df.pivot_table(
-                    index=expected_cols,
-                    columns="parameter",
-                    values="value",
-                    aggfunc="first"
-                ).reset_index()
-                df.columns.name = None
-                st.success("✅ Pivot table created successfully")
+        if "parameter" in df.columns and "value" in df.columns:
+            df = df.pivot_table(
+                index=pivot_index,
+                columns="parameter",
+                values="value",
+                aggfunc="first"  # or 'mean' if multiple readings per timestamp
+            ).reset_index()
+            df.columns.name = None
+            st.success("✅ Pivoted data with all stations and pollutants")
+        else:
+            st.warning("⚠️ 'parameter' or 'value' columns missing, cannot pivot")
 
 
         # Fill missing pollutants
-        for col in POLLUTANTS:
-            if col in df.columns:
-                df[col] = df[col].fillna(df[col].median())
+        # Keep all main pollutants
+        pollutant_cols = [c for c in ["pm25","pm10","no2","o3","co","so2"] if c in df.columns]
+        
+        for col in pollutant_cols:
+            df[col] = df[col].fillna(df[col].median())
 
         # Fill missing weather
         weather_cols = ["temp_c","humidity","pressure","wind_speed","wind_dir"]
@@ -201,28 +202,30 @@ if uploaded_file:
                 df[col] = 0
 
         # Create features
-                pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
+        pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
         
-                if pollutant_cols:
-                    df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
-                else:
-                    st.warning("⚠️ No pollutant columns found, setting aqi_proxy to NaN")
-                    df["aqi_proxy"] = np.nan
-                
-                if "pm25" in df.columns and "roads_count" in df.columns:
-                    df["pollution_per_road"] = df["pm25"] / (df["roads_count"] + 1)
-                else:
-                    st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
-                    df["pollution_per_road"] = np.nan
-                
-                df["aqi_category"] = df["aqi_proxy"].apply(
-                    lambda x: (
-                        "Good" if pd.notna(x) and x <= 50 else
-                        "Moderate" if pd.notna(x) and x <= 100 else
-                        "Unhealthy" if pd.notna(x) and x <= 200 else
-                        "Hazardous"
-                    )
-                )
+        if pollutant_cols:
+            df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
+        else:
+            df["aqi_proxy"] = np.nan
+            st.warning("⚠️ No pollutant columns found, aqi_proxy set to NaN")
+        
+        # Pollution per road
+        if "pm25" in df.columns and "roads_count" in df.columns:
+            df["pollution_per_road"] = df["pm25"] / (df["roads_count"] + 1)
+        else:
+            df["pollution_per_road"] = np.nan
+            st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
+        
+        # AQI category
+        df["aqi_category"] = df["aqi_proxy"].apply(
+            lambda x: (
+                "Good" if pd.notna(x) and x <= 50 else
+                "Moderate" if pd.notna(x) and x <= 100 else
+                "Unhealthy" if pd.notna(x) and x <= 200 else
+                "Hazardous"
+            )
+        )
 
         # Standardize numeric columns
         num_cols = ["pm25","pm10","no2","co","so2","o3","roads_count","industries_count","farms_count","dumps_count","aqi_proxy","pollution_per_road"] + weather_cols
