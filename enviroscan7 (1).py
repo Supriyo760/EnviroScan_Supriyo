@@ -44,7 +44,7 @@ def get_weather(lat, lon, api_key):
         st.error(f"Failed to fetch weather data: {e}")
         return {}
 
-def extract_osm_features(lat, lon, radius=100):
+def extract_osm_features(lat, lon, radius=2000):
     features = {}
     point = (lat, lon)
     try:
@@ -109,18 +109,23 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
 
     # OSM features
     try:
-        G = ox.graph_from_point((lat, lon), dist=2000, network_type="drive")
+        st.write(f"Fetching OSM graph for {city} at ({lat}, {lon}) with radius 5000m...")
+        G = ox.graph_from_point((lat, lon), dist=5000, network_type="drive")
+        road_count = len(G.edges()) if G.edges() else 0
         gdf = ox.geocode_to_gdf(city)
         gdf_utm = gdf.to_crs(epsg=32643)
         area_km2 = gdf_utm.geometry.area.iloc[0] / 1e6
-        road_count = len(G.edges())
         osm_features = extract_osm_features(lat, lon, radius=2000)
         osm_features["osm_area_km2"] = area_km2
-        osm_features["road_count"] = road_count
+        osm_features["road_count"] = road_count if road_count > 0 else osm_features.get("roads_count", 0)
         osm_features["osm_source"] = "OpenStreetMap/OSMnx"
+        st.write(f"Road count: {road_count}, Area: {area_km2} km²")
     except Exception as e:
         st.warning(f"⚠️ OSM data fetch failed: {e}")
-        osm_features = {"osm_area_km2": None, "road_count": None}
+        osm_features = extract_osm_features(lat, lon, radius=2000)
+        osm_features["osm_area_km2"] = None
+        osm_features["road_count"] = osm_features.get("roads_count", 0)
+        osm_features["osm_source"] = "OpenStreetMap/OSMnx"
 
     # Metadata dictionary
     meta = {
@@ -164,16 +169,25 @@ def clean_and_engineer_features(df):
     st.write("=== Data Cleaning and Feature Engineering ===")
     st.write(f"Dataset Loaded: {df.shape[0]} rows, {df.shape[1]} columns")
 
+    # Define metadata columns to retain
+    meta_cols = ["city", "latitude", "longitude", "timestamp", "roads_count", 
+                 "industries_count", "farms_count", "dumps_count", "osm_area_km2", 
+                 "road_count", "osm_source", "weather_source", "temp_c", "humidity", 
+                 "pressure", "wind_speed", "wind_dir"]
+
     # Pivot if needed
     if "parameter" in df.columns and "value" in df.columns:
         st.write("Pivoting dataset so pollutants become columns...")
+        st.write(f"Before pivot, roads_count: {df['roads_count'].iloc[0] if 'roads_count' in df.columns else 'missing'}")
+        pivot_index = ["location_name"] + [col for col in meta_cols if col in df.columns]
         df = df.pivot_table(
-            index=["location_name", "city", "latitude", "longitude", "timestamp"],
+            index=pivot_index,
             columns="parameter",
             values="value",
             aggfunc="first"
         ).reset_index()
         df.columns.name = None
+        st.write(f"After pivot, roads_count: {df['roads_count'].iloc[0] if 'roads_count' in df.columns else 'missing'}")
 
     # Ensure OSM features exist
     osm_features = ["roads_count", "industries_count", "farms_count", "dumps_count"]
@@ -219,8 +233,9 @@ def clean_and_engineer_features(df):
     df["aqi_category"] = df["aqi_proxy"].apply(categorize_aqi)
 
     # Standardize numeric features
-    num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", "industries_count", "farms_count", "dumps_count",
-                "aqi_proxy", "pollution_per_road"] + weather_cols
+    num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", 
+                "industries_count", "farms_count", "dumps_count", "aqi_proxy", 
+                "pollution_per_road"] + weather_cols
     num_cols = [col for col in num_cols if col in df.columns]
     scaler = StandardScaler()
     df[num_cols] = scaler.fit_transform(df[num_cols])
