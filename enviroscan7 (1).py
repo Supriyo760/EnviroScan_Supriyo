@@ -14,6 +14,9 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_validate
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import KFold
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -53,58 +56,89 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     try:
         df_aq = pd.read_csv(
             aq_csv_file,
-            skiprows=2,
+            skiprows=2, # Adjust if your CSV has different header rows
             on_bad_lines="skip",
             engine="python"
         )
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
+       
+        # Debug: Verify stations (optional, remove after testing)
+        # st.write("Unique stations in raw CSV:", df_aq['location_name'].nunique())
+        # st.write("Stations:", df_aq['location_name'].unique().tolist())
+       
     except Exception as e:
         st.error(f"⚠️ Failed to load AQ CSV: {e}")
         return pd.DataFrame(), {}
+   
     # Ensure latitude and longitude are present
     if 'latitude' not in df_aq.columns or 'longitude' not in df_aq.columns:
         df_aq['latitude'] = lat
         df_aq['longitude'] = lon
-    # Pivot to wide format for pollutants per location
-    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'parameter'])['value'].mean().reset_index()
+   
+    # Define expected pollutants
+    POLLUTANTS = ['pm25', 'pm10', 'no2', 'co', 'so2', 'o3']
+   
+    # Convert CO from ppb to µg/m³ for consistency
+    df_aq.loc[df_aq['parameter'] == 'co', 'value'] *= 1144.6 # ppb to µg/m³ (approx, at 25°C, 1 atm)
+   
+    # Pivot to wide format per location/timestamp
+    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'datetimeUtc', 'parameter'])['value'].mean().reset_index()
     df_wide = df_agg.pivot_table(
-        index=['location_name', 'latitude', 'longitude'],
+        index=['location_name', 'latitude', 'longitude', 'datetimeUtc'],
         columns='parameter',
-        values='value'
+        values='value',
+        aggfunc='mean' # Handle duplicates
     ).reset_index()
-    # Initialize pollutant columns if missing
+   
+    # Initialize missing pollutant columns
     for pollutant in POLLUTANTS:
         if pollutant not in df_wide.columns:
             df_wide[pollutant] = np.nan
-    # Add OSM features for each unique location
-    osm_list = []
-    for _, row in df_wide.iterrows():
-        osm_lat, osm_lon = row['latitude'], row['longitude']
-        osm = extract_osm_features(osm_lat, osm_lon, radius=2000)
-        osm_list.append(osm)
-    df_osm = pd.DataFrame(osm_list)
+   
+    # Fill missing values PER STATION
+    df_wide = df_wide.sort_values(['location_name', 'datetimeUtc'])
+    df_wide[POLLUTANTS] = df_wide.groupby('location_name')[POLLUTANTS].fillna(method='ffill').fillna(method='bfill')
+   
+    # Add OSM features per unique location
+    unique_locations = df_wide[['location_name', 'latitude', 'longitude']].drop_duplicates()
+    osm_dict = {}
+    for _, row in unique_locations.iterrows():
+        osm = extract_osm_features(row['latitude'], row['longitude'], radius=2000)
+        key = (row['location_name'], row['latitude'], row['longitude'])
+        osm_dict[key] = osm
+   
+    df_osm = df_wide.apply(lambda row: pd.Series(osm_dict.get((row['location_name'], row['latitude'], row['longitude']),
+                                                              {'roads_count': 0, 'industries_count': 0, 'farms_count': 0, 'dumps_count': 0})), axis=1)
     df_wide = pd.concat([df_wide, df_osm], axis=1)
-    # Fetch weather data (city-level)
+   
+    # Add weather data
     weather_data = get_weather(lat, lon, openweather_key)
     weather_features = {
-        "temp_c": weather_data.get("main", {}).get("temp"),
-        "humidity": weather_data.get("main", {}).get("humidity"),
-        "pressure": weather_data.get("main", {}).get("pressure"),
-        "wind_speed": weather_data.get("wind", {}).get("speed"),
-        "wind_dir": weather_data.get("wind", {}).get("deg"),
-        "weather_source": "OpenWeatherMap"
+        'temp_c': weather_data.get('main', {}).get('temp'),
+        'humidity': weather_data.get('main', {}).get('humidity'),
+        'pressure': weather_data.get('main', {}).get('pressure'),
+        'wind_speed': weather_data.get('wind', {}).get('speed'),
+        'wind_dir': weather_data.get('wind', {}).get('deg'),
+        'weather_source': 'OpenWeatherMap'
     }
     for k, v in weather_features.items():
         df_wide[k] = v
+   
+    # Add derived features
+    df_wide['aqi_proxy'] = df_wide.get('pm25', 0) * 0.4 + df_wide.get('pm10', 0) * 0.3 + \
+                           df_wide.get('no2', 0) * 0.2 + df_wide.get('co', 0) * 0.1
+    df_wide['pollution_per_road'] = df_wide.get('pm25', 0) / (df_wide.get('roads_count', 1) + 1)
+   
     # Metadata
     meta = {
-        "city": city,
-        "latitude": lat,
-        "longitude": lon,
-        "records": len(df_wide),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": "OpenAQ"
+        'city': city,
+        'latitude': lat,
+        'longitude': lon,
+        'records': len(df_wide),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'source': 'OpenAQ',
+        'unique_stations': df_wide['location_name'].nunique()
     }
     return df_wide, meta
 def save_datasets(df, filename):
@@ -190,6 +224,13 @@ if uploaded_file:
                 "Hazardous"
             )
         )
+        # --- Assign pollution sources ---
+        required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
+        if all(col in df.columns for col in required_cols):
+            df["pollution_source"] = df.apply(label_source, axis=1)
+        else:
+            st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
+            df["pollution_source"] = "Unknown"
         # --- Standardize numeric columns ---
         num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", "industries_count", "farms_count", "dumps_count", "aqi_proxy", "pollution_per_road"] + weather_cols
         num_cols = [col for col in num_cols if col in df.columns]
@@ -200,98 +241,107 @@ if uploaded_file:
         categorical_cols = [col for col in categorical_cols if col in df.columns]
         if categorical_cols:
             df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
-        # --- Assign pollution sources ---
-        required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
-        if all(col in df.columns for col in required_cols):
-            df["pollution_source"] = df.apply(label_source, axis=1)
-        else:
-            st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
-            df["pollution_source"] = "Unknown"
+       
         # Save cleaned dataset
         df.to_csv("cleaned_environmental_data.csv", index=False)
         st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
         # Display preview
-        st.subheader("Preview of Cleaned Dataset")
-        st.dataframe(df.head(10))
+        #st.subheader("Preview of Cleaned Dataset")
+        #st.dataframe(df.head(10))
         # --- Optional: Model Training ---
         if st.button("Train Models and Predict Pollution Source"):
             st.info("Training models...")
             X = df.drop(columns=["pollution_source"])
             y = df["pollution_source"]
+            # Ensure consistent samples
+            st.write(f"X shape: {X.shape}, y shape: {y.shape}")
+            valid_idx = ~y.isna()
+            X = X[valid_idx]
+            y = y[valid_idx]
+            st.write(f"After cleaning: X shape: {X.shape}, y shape: {y.shape}")
+            # Check class distribution
+            st.write("Class distribution before resampling:")
+            st.write(pd.Series(y).value_counts())
+            # Visualize class distribution
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.countplot(x="pollution_source", data=df, ax=ax, palette="viridis")
+            ax.set_title("Pollution Source Distribution")
+            ax.set_xlabel("Pollution Source")
+            ax.set_ylabel("Count")
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
             # Keep only numeric features
             X = X.select_dtypes(include=[np.number])
-            # Check if stratification is possible
-            if len(y.unique()) < 2:
-                st.warning("⚠️ Only one class in pollution_source. Disabling stratification.")
-                stratify = None
-            else:
-                stratify = y
-            # Split data
-            try:
-                X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=stratify)
-                X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=stratify)
-            except ValueError as e:
-                st.error(f"⚠️ Failed to split data: {e}. Proceeding without stratification.")
-                X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
-                X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
-            # Balance training data
-            df_train = pd.concat([X_train, y_train], axis=1)
-            majority_class = df_train["pollution_source"].value_counts().idxmax()
-            dfs = []
-            for label in df_train["pollution_source"].unique():
-                subset = df_train[df_train["pollution_source"] == label]
-                if label != majority_class:
-                    subset = resample(subset, replace=True, n_samples=df_train[df_train["pollution_source"] == majority_class].shape[0], random_state=42)
-                dfs.append(subset)
-            df_train_balanced = pd.concat(dfs)
-            X_train = df_train_balanced.drop(columns=["pollution_source"])
-            y_train = df_train_balanced["pollution_source"]
+            numeric_columns = X.columns.tolist() # Save columns before transforming
             # Impute and scale
             imputer = SimpleImputer(strategy="median")
-            X_train = imputer.fit_transform(X_train)
-            X_val = imputer.transform(X_val)
-            X_test = imputer.transform(X_test)
+            X = imputer.fit_transform(X)
             scaler = StandardScaler()
-            X_train = scaler.fit_transform(X_train)
-            X_val = scaler.transform(X_val)
-            X_test = scaler.transform(X_test)
+            X = scaler.fit_transform(X)
+            # Use simpler models
             models = {
-                "Logistic Regression": LogisticRegression(max_iter=1000),
-                "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
-                "Neural Network": MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=500, random_state=42)
+                "Logistic Regression": LogisticRegression(max_iter=1000, C=0.1, random_state=42)
             }
-            performance = {}
-            for name, model in models.items():
-                st.write(f"Training {name}...")
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_val)
-                acc = accuracy_score(y_val, y_pred)
-                prec = precision_score(y_val, y_pred, average="weighted", zero_division=0)
-                rec = recall_score(y_val, y_pred, average="weighted", zero_division=0)
-                f1 = f1_score(y_val, y_pred, average="weighted", zero_division=0)
-                performance[name] = {"Accuracy": acc, "Precision": prec, "Recall": rec, "F1": f1}
-                st.write(f"Validation results for {name}:")
-                st.text(classification_report(y_val, y_pred, zero_division=0))
-                # Confusion matrix plot
-                cm = confusion_matrix(y_val, y_pred, labels=model.classes_)
-                fig, ax = plt.subplots(figsize=(6, 4))
-                sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=model.classes_, yticklabels=model.classes_, ax=ax)
-                ax.set_title(f"Confusion Matrix - {name}")
-                ax.set_xlabel("Predicted")
-                ax.set_ylabel("Actual")
-                st.pyplot(fig)
-            best_model_name = max(performance, key=lambda k: performance[k]["F1"])
-            best_model = models[best_model_name]
-            st.success(f"🏆 Best model selected: {best_model_name}")
-            # Evaluate on test set
-            y_test_pred = best_model.predict(X_test)
-            st.subheader("Final Test Performance")
-            st.text(classification_report(y_test, y_test_pred, zero_division=0))
-            # Save model and predictions
-            joblib.dump(best_model, "pollution_source_model.pkl")
-            st.success("💾 Best model saved as pollution_source_model.pkl")
-            X_test_orig = pd.DataFrame(X_test, columns=X.select_dtypes(include=[np.number]).columns)
-            X_test_orig["actual_source"] = y_test.reset_index(drop=True)
-            X_test_orig["predicted_source"] = y_test_pred
-            X_test_orig.to_csv("final_predictions.csv", index=False)
-            st.success("💾 Final predictions saved as final_predictions.csv")
+            # Use cross-validation for small datasets
+            if X.shape[0] < 50: # Arbitrary threshold for small datasets
+                st.warning("Small dataset detected. Using cross-validation instead of train-test split.")
+                for name, model in models.items():
+                    scores = cross_validate(model, X, y, cv=KFold(n_splits=5, shuffle=True, random_state=42), scoring=['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted'], return_train_score=False)
+                    st.write(f"{name} Cross-Validation Results:")
+                    st.write(f"Accuracy: {scores['test_accuracy'].mean():.2f} ± {scores['test_accuracy'].std():.2f}")
+                    st.write(f"Precision: {scores['test_precision_weighted'].mean():.2f} ± {scores['test_precision_weighted'].std():.2f}")
+                    st.write(f"Recall: {scores['test_recall_weighted'].mean():.2f} ± {scores['test_recall_weighted'].std():.2f}")
+                    st.write(f"F1: {scores['test_f1_weighted'].mean():.2f} ± {scores['test_f1_weighted'].std():.2f}")
+            else:
+                # Split data
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                from imblearn.over_sampling import SMOTE
+                # Balance training data with SMOTE
+                if len(y_train.value_counts()) > 1 and min(y_train.value_counts()) > 1:
+                    smote = SMOTE(random_state=42)
+                    X_train, y_train = smote.fit_resample(X_train, y_train)
+                    st.write("Class distribution after SMOTE:")
+                    st.write(pd.Series(y_train).value_counts())
+                else:
+                    st.warning("Not enough samples for SMOTE. Proceeding with original training data.")
+   
+                # Impute and scale
+                X_train = imputer.fit_transform(X_train)
+                X_test = imputer.transform(X_test)
+                X_train = scaler.fit_transform(X_train)
+                X_test = scaler.transform(X_test)
+   
+                performance = {}
+                for name, model in models.items():
+                    st.write(f"Training {name}...")
+                    model.fit(X_train, y_train)
+                    y_pred = model.predict(X_test)
+                    acc = accuracy_score(y_test, y_pred)
+                    prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
+                    rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
+                    f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
+                    performance[name] = {"Accuracy": acc, "Precision": prec, "Recall": rec, "F1": f1}
+                    st.write(f"Test results for {name}:")
+                    st.text(classification_report(y_test, y_pred, zero_division=0))
+       
+                    # Confusion matrix
+                    cm = confusion_matrix(y_test, y_pred, labels=model.classes_)
+                    fig, ax = plt.subplots(figsize=(6, 4))
+                    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=model.classes_, yticklabels=model.classes_, ax=ax)
+                    ax.set_title(f"Confusion Matrix - {name}")
+                    ax.set_xlabel("Predicted")
+                    ax.set_ylabel("Actual")
+                    st.pyplot(fig)
+               
+                # Save best model
+                best_model_name = max(performance, key=lambda k: performance[k]["F1"])
+                best_model = models[best_model_name]
+                joblib.dump(best_model, "pollution_source_model.pkl")
+                st.success(f"💾 Best model saved as pollution_source_model.pkl")
+               
+                # Save predictions
+                X_test_orig = pd.DataFrame(X_test, columns=numeric_columns) # Use saved columns
+                X_test_orig["actual_source"] = y_test.reset_index(drop=True)
+                X_test_orig["predicted_source"] = y_pred
+                X_test_orig.to_csv("final_predictions.csv", index=False)
+                st.success("💾 Final predictions saved as final_predictions.csv")
