@@ -61,77 +61,90 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     try:
         df_aq = pd.read_csv(
             aq_csv_file,
-            skiprows=2,
+            skiprows=2,  # Adjust if your CSV has different header rows
             on_bad_lines="skip",
             engine="python"
         )
-        st.write("Raw AQ data shape:", df_aq.shape)
-        #st.write("Raw AQ data columns:", df_aq.columns.tolist())
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
+        
+        # Debug: Verify stations (optional, remove after testing)
+        # st.write("Unique stations in raw CSV:", df_aq['location_name'].nunique())
+        # st.write("Stations:", df_aq['location_name'].unique().tolist())
+        
     except Exception as e:
         st.error(f"⚠️ Failed to load AQ CSV: {e}")
         return pd.DataFrame(), {}
-
+    
     # Ensure latitude and longitude are present
     if 'latitude' not in df_aq.columns or 'longitude' not in df_aq.columns:
         df_aq['latitude'] = lat
         df_aq['longitude'] = lon
-
-    # Pivot to wide format for pollutants per location and timestamp (keep time dimension)
-    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'datetimeUtc', 'parameter'])['value'].last().reset_index()  # Use 'last' or 'mean' if multiple per time; adjust as needed
+    
+    # Define expected pollutants
+    POLLUTANTS = ['pm25', 'pm10', 'no2', 'co', 'so2', 'o3']
+    
+    # Convert CO from ppb to µg/m³ for consistency
+    df_aq.loc[df_aq['parameter'] == 'co', 'value'] *= 1144.6  # ppb to µg/m³ (approx, at 25°C, 1 atm)
+    
+    # Pivot to wide format per location/timestamp
+    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'datetimeUtc', 'parameter'])['value'].mean().reset_index()
     df_wide = df_agg.pivot_table(
         index=['location_name', 'latitude', 'longitude', 'datetimeUtc'],
         columns='parameter',
-        values='value'
+        values='value',
+        aggfunc='mean'  # Handle duplicates
     ).reset_index()
-
-    # Initialize pollutant columns if missing
+    
+    # Initialize missing pollutant columns
     for pollutant in POLLUTANTS:
         if pollutant not in df_wide.columns:
             df_wide[pollutant] = np.nan
-
-    # Get unique locations and their OSM features
+    
+    # Fill missing values PER STATION
+    df_wide = df_wide.sort_values(['location_name', 'datetimeUtc'])
+    df_wide[POLLUTANTS] = df_wide.groupby('location_name')[POLLUTANTS].fillna(method='ffill').fillna(method='bfill')
+    
+    # Add OSM features per unique location
     unique_locations = df_wide[['location_name', 'latitude', 'longitude']].drop_duplicates()
     osm_dict = {}
     for _, row in unique_locations.iterrows():
-        osm_lat, osm_lon = row['latitude'], row['longitude']
-        osm = extract_osm_features(osm_lat, osm_lon, radius=2000)
-        key = (row['location_name'], osm_lat, osm_lon)  # Unique key for location
+        osm = extract_osm_features(row['latitude'], row['longitude'], radius=2000)
+        key = (row['location_name'], row['latitude'], row['longitude'])
         osm_dict[key] = osm
     
-    # Add OSM features to df_wide
-    def add_osm(row):
-        key = (row['location_name'], row['latitude'], row['longitude'])
-        return pd.Series(osm_dict.get(key, {}))
-    
-    df_osm = df_wide.apply(add_osm, axis=1)
+    df_osm = df_wide.apply(lambda row: pd.Series(osm_dict.get((row['location_name'], row['latitude'], row['longitude']), 
+                                                              {'roads_count': 0, 'industries_count': 0, 'farms_count': 0, 'dumps_count': 0})), axis=1)
     df_wide = pd.concat([df_wide, df_osm], axis=1)
-
-    # Fetch weather data (city-level)
+    
+    # Add weather data
     weather_data = get_weather(lat, lon, openweather_key)
-    #st.write("Weather Data:", weather_data)
     weather_features = {
-        "temp_c": weather_data.get("main", {}).get("temp"),
-        "humidity": weather_data.get("main", {}).get("humidity"),
-        "pressure": weather_data.get("main", {}).get("pressure"),
-        "wind_speed": weather_data.get("wind", {}).get("speed"),
-        "wind_dir": weather_data.get("wind", {}).get("deg"),
-        "weather_source": "OpenWeatherMap"
+        'temp_c': weather_data.get('main', {}).get('temp'),
+        'humidity': weather_data.get('main', {}).get('humidity'),
+        'pressure': weather_data.get('main', {}).get('pressure'),
+        'wind_speed': weather_data.get('wind', {}).get('speed'),
+        'wind_dir': weather_data.get('wind', {}).get('deg'),
+        'weather_source': 'OpenWeatherMap'
     }
     for k, v in weather_features.items():
         df_wide[k] = v
-
+    
+    # Add derived features
+    df_wide['aqi_proxy'] = df_wide.get('pm25', 0) * 0.4 + df_wide.get('pm10', 0) * 0.3 + \
+                           df_wide.get('no2', 0) * 0.2 + df_wide.get('co', 0) * 0.1
+    df_wide['pollution_per_road'] = df_wide.get('pm25', 0) / (df_wide.get('roads_count', 1) + 1)
+    
     # Metadata
     meta = {
-        "city": city,
-        "latitude": lat,
-        "longitude": lon,
-        "records": len(df_wide),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": "OpenAQ"
+        'city': city,
+        'latitude': lat,
+        'longitude': lon,
+        'records': len(df_wide),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'source': 'OpenAQ',
+        'unique_stations': df_wide['location_name'].nunique()
     }
-
     return df_wide, meta
 
 def save_datasets(df, filename):
@@ -192,75 +205,65 @@ if uploaded_file:
         # --- Data Cleaning ---
         df = pd.read_csv("delhi_environmental_data.csv")
 
-        # --- Preview ---
-        st.subheader("📊 AQ Dataset Preview")
-        st.dataframe(df.head(10))
-
-        # --- Fill missing pollutants ---
-        pollutant_cols = [c for c in POLLUTANTS if c in df.columns]
-        for col in pollutant_cols:
-            df[col] = df[col].fillna(df[col].median())
-
-        # --- Fill missing weather ---
-        weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
-        for col in weather_cols:
-            if col in df.columns:
-                df[col] = df[col].fillna(df[col].mean())
-
-        # --- Ensure OSM features exist ---
-        for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
-            if col not in df.columns:
-                df[col] = 0
-
-        # --- Create features ---
-        if pollutant_cols:
-            df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
-        else:
-            df["aqi_proxy"] = np.nan
-            st.warning("⚠️ No pollutant columns found, aqi_proxy set to NaN")
-
-        if "pm25" in df.columns and "roads_count" in df.columns:
-            df["pollution_per_road"] = df["pm25"] / (df["roads_count"] + 1)
-        else:
-            df["pollution_per_road"] = np.nan
-            st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
-
-        df["aqi_category"] = df["aqi_proxy"].apply(
-            lambda x: (
-                "Good" if pd.notna(x) and x <= 50 else
-                "Moderate" if pd.notna(x) and x <= 100 else
-                "Unhealthy" if pd.notna(x) and x <= 200 else
-                "Hazardous"
-            )
-        )
-        # --- Assign pollution sources ---
-        required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
-        if all(col in df.columns for col in required_cols):
-            df["pollution_source"] = df.apply(label_source, axis=1)
-        else:
-            st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
-            df["pollution_source"] = "Unknown"
-
-        # --- Standardize numeric columns ---
-        num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", "industries_count", "farms_count", "dumps_count", "aqi_proxy", "pollution_per_road"] + weather_cols
-        num_cols = [col for col in num_cols if col in df.columns]
-        scaler = StandardScaler()
-        df[num_cols] = scaler.fit_transform(df[num_cols])
-
-        # --- Encode categorical ---
-        categorical_cols = ["city", "aqi_category"]
-        categorical_cols = [col for col in categorical_cols if col in df.columns]
-        if categorical_cols:
-            df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
-
+        # After build_dataset and labeling
+        df, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
+        if not df.empty:
+            # Add pollution source labels BEFORE scaling
+            required_cols = ['pm25', 'roads_count', 'industries_count', 'farms_count']
+            if all(col in df.columns for col in required_cols):
+                df['pollution_source'] = df.apply(label_source, axis=1)
+            else:
+                st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
+                df['pollution_source'] = 'Unknown'
         
-        # Save cleaned dataset
-        df.to_csv("cleaned_environmental_data.csv", index=False)
-        st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+            # Compute and display median values per station
+            st.subheader("Median Values per Station")
+            key_columns = ['location_name', 'latitude', 'longitude', 'pm25', 'pm10', 'no2', 'co', 'so2', 'o3', 
+                           'roads_count', 'industries_count', 'farms_count', 'dumps_count', 'aqi_proxy', 'pollution_per_road', 
+                           'temp_c', 'humidity', 'pressure', 'wind_speed']
+            key_columns = [col for col in key_columns if col in df.columns]  # Only include available columns
+            median_df = df[key_columns].groupby(['location_name', 'latitude', 'longitude']).median().reset_index()
+        
+            # Add most common pollution source per station
+            mode_source = df.groupby('location_name')['pollution_source'].agg(lambda x: x.mode()[0]).reset_index()
+            median_df = median_df.merge(mode_source, on='location_name')
+        
+            # Display formatted table
+            st.dataframe(median_df.style.format({
+                'latitude': '{:.6f}', 
+                'longitude': '{:.6f}', 
+                'pm25': '{:.2f}', 
+                'pm10': '{:.2f}', 
+                'no2': '{:.2f}', 
+                'co': '{:.2f}', 
+                'so2': '{:.2f}', 
+                'o3': '{:.2f}', 
+                'aqi_proxy': '{:.2f}', 
+                'pollution_per_road': '{:.2f}', 
+                'temp_c': '{:.2f}', 
+                'humidity': '{:.2f}', 
+                'pressure': '{:.2f}', 
+                'wind_speed': '{:.2f}'
+            }))
+            st.write(f"Total stations: {df['location_name'].nunique()}")
+            st.write(f"Total rows in raw data: {len(df)}")
+        
+            # Optional: Debug NaNs in medians
+            # st.write("NaNs in median table:", median_df.isna().sum())
+        
+            # Continue with scaling and saving
+            num_cols = ['pm25', 'pm10', 'no2', 'co', 'so2', 'o3', 'roads_count', 'industries_count', 
+                        'farms_count', 'dumps_count', 'aqi_proxy', 'pollution_per_road', 
+                        'temp_c', 'humidity', 'pressure', 'wind_speed']
+            num_cols = [col for col in num_cols if col in df.columns]
+            scaler = StandardScaler()
+            df[num_cols] = scaler.fit_transform(df[num_cols])
+            df.to_csv('cleaned_environmental_data.csv', index=False)
+            st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
 
         # Display preview
-        st.subheader("Preview of Cleaned Dataset")
-        st.dataframe(df.head(10))
+        #st.subheader("Preview of Cleaned Dataset")
+        #st.dataframe(df.head(10))
 
         # --- Optional: Model Training ---
         if st.button("Train Models and Predict Pollution Source"):
