@@ -287,7 +287,7 @@ if uploaded_file:
 
             # Keep only numeric features
             X = X.select_dtypes(include=[np.number])
-
+            numeric_columns = X.columns.tolist()  # Save columns before transforming
             # Impute and scale
             imputer = SimpleImputer(strategy="median")
             X = imputer.fit_transform(X)
@@ -357,7 +357,7 @@ if uploaded_file:
                 st.success(f"💾 Best model saved as pollution_source_model.pkl")
                 
                 # Save predictions
-                X_test_orig = pd.DataFrame(X_test, columns=X.select_dtypes(include=[np.number]).columns)
+                X_test_orig = pd.DataFrame(X_test, columns=numeric_columns)  # Use saved columns
                 X_test_orig["actual_source"] = y_test.reset_index(drop=True)
                 X_test_orig["predicted_source"] = y_pred
                 X_test_orig.to_csv("final_predictions.csv", index=False)
