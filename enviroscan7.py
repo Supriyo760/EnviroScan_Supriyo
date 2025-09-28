@@ -29,7 +29,7 @@ def get_weather(lat, lon, api_key):
     resp = requests.get(url, params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric"})
     return resp.json() if resp.status_code == 200 else {}
 
-def extract_osm_features(lat, lon, radius=100):
+def extract_osm_features(lat, lon, radius=2000):  # Increased radius for better feature capture
     features = {}
     point = (lat, lon)
     try:
@@ -65,29 +65,37 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
     except Exception as e:
-        print(f"⚠️ Failed to load AQ CSV: {e}")
+        st.error(f"⚠️ Failed to load AQ CSV: {e}")
         return pd.DataFrame(), {}
 
-    # Aggregate average value per location per parameter
+    # Ensure latitude and longitude are present
     if 'latitude' not in df_aq.columns or 'longitude' not in df_aq.columns:
         df_aq['latitude'] = lat
         df_aq['longitude'] = lon
 
-    df_agg = df_aq.groupby(['location_name', 'parameter', 'latitude', 'longitude'])['value'].mean().reset_index()
+    # Pivot to wide format for pollutants per location
+    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'parameter'])['value'].mean().reset_index()
+    df_wide = df_agg.pivot_table(
+        index=['location_name', 'latitude', 'longitude'],
+        columns='parameter',
+        values='value'
+    ).reset_index()
 
-    # Pivot to wide format for pollutants
-    df_wide = df_agg.pivot(index=['location_name', 'latitude', 'longitude'], columns='parameter', values='value').reset_index()
+    # Initialize pollutant columns if missing
+    for pollutant in POLLUTANTS:
+        if pollutant not in df_wide.columns:
+            df_wide[pollutant] = np.nan
 
-    # Add OSM features per location
+    # Add OSM features for each unique location
     osm_list = []
-    for idx, row in df_wide.iterrows():
+    for _, row in df_wide.iterrows():
         osm_lat, osm_lon = row['latitude'], row['longitude']
         osm = extract_osm_features(osm_lat, osm_lon, radius=2000)
         osm_list.append(osm)
     df_osm = pd.DataFrame(osm_list)
     df_wide = pd.concat([df_wide, df_osm], axis=1)
 
-    # Fetch weather (current, city-level)
+    # Fetch weather data (city-level)
     weather_data = get_weather(lat, lon, openweather_key)
     weather_features = {
         "temp_c": weather_data.get("main", {}).get("temp"),
@@ -137,15 +145,15 @@ def label_source(row):
     industries = row.get("industries_count", 0)
     farms = row.get("farms_count", 0)
     
-    if pm25 > 0 and industries > 0:
+    # More robust labeling logic
+    if pd.notna(pm25) and pm25 > 25 and industries > 0:  # Adjusted threshold for pm25
         return "Industrial"
-    elif pm25 > 0 and roads > 0:
+    elif pd.notna(pm25) and pm25 > 15 and roads > 5:  # Adjusted threshold for pm25 and roads
         return "Traffic"
     elif farms > 0:
         return "Agricultural"
     else:
         return "Mixed/Other"
-
 
 # --- Streamlit App ---
 st.title("Enviroscan Environmental Data Analysis")
@@ -170,7 +178,7 @@ if uploaded_file:
         # --- Data Cleaning ---
         df = pd.read_csv("delhi_environmental_data.csv")
 
-        # --- Preview (since now wide, no need for pivot) ---
+        # --- Preview ---
         st.subheader("📊 AQ Dataset Preview")
         st.dataframe(df.head(10))
 
@@ -180,13 +188,13 @@ if uploaded_file:
             df[col] = df[col].fillna(df[col].median())
 
         # --- Fill missing weather ---
-        weather_cols = ["temp_c","humidity","pressure","wind_speed","wind_dir"]
+        weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
         for col in weather_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(df[col].mean())
 
         # --- Ensure OSM features exist ---
-        for col in ["roads_count","industries_count","farms_count","dumps_count"]:
+        for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
             if col not in df.columns:
                 df[col] = 0
 
@@ -212,28 +220,25 @@ if uploaded_file:
             )
         )
 
-        # --- Continue rest of processing (scaling, encoding, labeling) as before ---
-
-        # Standardize numeric columns
-        num_cols = ["pm25","pm10","no2","co","so2","o3","roads_count","industries_count","farms_count","dumps_count","aqi_proxy","pollution_per_road"] + weather_cols
+        # --- Standardize numeric columns ---
+        num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", "industries_count", "farms_count", "dumps_count", "aqi_proxy", "pollution_per_road"] + weather_cols
         num_cols = [col for col in num_cols if col in df.columns]
         scaler = StandardScaler()
         df[num_cols] = scaler.fit_transform(df[num_cols])
 
-        # Encode categorical
-        categorical_cols = ["city","aqi_category"]
+        # --- Encode categorical ---
+        categorical_cols = ["city", "aqi_category"]
         categorical_cols = [col for col in categorical_cols if col in df.columns]
         if categorical_cols:
             df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-        # Assign pollution sources
+        # --- Assign pollution sources ---
         required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
         if all(col in df.columns for col in required_cols):
             df["pollution_source"] = df.apply(label_source, axis=1)
         else:
             st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
             df["pollution_source"] = "Unknown"
-
 
         # Save cleaned dataset
         df.to_csv("cleaned_environmental_data.csv", index=False)
@@ -252,24 +257,36 @@ if uploaded_file:
             # Keep only numeric features
             X = X.select_dtypes(include=[np.number])
 
-            # Split
-            X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-            X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp)
+            # Check if stratification is possible
+            if len(y.unique()) < 2:
+                st.warning("⚠️ Only one class in pollution_source. Disabling stratification.")
+                stratify = None
+            else:
+                stratify = y
 
-            # Balance training
+            # Split data
+            try:
+                X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=stratify)
+                X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=stratify)
+            except ValueError as e:
+                st.error(f"⚠️ Failed to split data: {e}. Proceeding without stratification.")
+                X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
+                X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+            # Balance training data
             df_train = pd.concat([X_train, y_train], axis=1)
             majority_class = df_train["pollution_source"].value_counts().idxmax()
             dfs = []
             for label in df_train["pollution_source"].unique():
-                subset = df_train[df_train["pollution_source"]==label]
+                subset = df_train[df_train["pollution_source"] == label]
                 if label != majority_class:
-                    subset = resample(subset, replace=True, n_samples=df_train[df_train["pollution_source"]==majority_class].shape[0], random_state=42)
+                    subset = resample(subset, replace=True, n_samples=df_train[df_train["pollution_source"] == majority_class].shape[0], random_state=42)
                 dfs.append(subset)
             df_train_balanced = pd.concat(dfs)
             X_train = df_train_balanced.drop(columns=["pollution_source"])
             y_train = df_train_balanced["pollution_source"]
 
-            # Impute + scale
+            # Impute and scale
             imputer = SimpleImputer(strategy="median")
             X_train = imputer.fit_transform(X_train)
             X_val = imputer.transform(X_val)
@@ -283,7 +300,7 @@ if uploaded_file:
             models = {
                 "Logistic Regression": LogisticRegression(max_iter=1000),
                 "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
-                "Neural Network": MLPClassifier(hidden_layer_sizes=(64,32), max_iter=500, random_state=42)
+                "Neural Network": MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=500, random_state=42)
             }
 
             performance = {}
@@ -303,7 +320,7 @@ if uploaded_file:
 
                 # Confusion matrix plot
                 cm = confusion_matrix(y_val, y_pred, labels=model.classes_)
-                fig, ax = plt.subplots(figsize=(6,4))
+                fig, ax = plt.subplots(figsize=(6, 4))
                 sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=model.classes_, yticklabels=model.classes_, ax=ax)
                 ax.set_title(f"Confusion Matrix - {name}")
                 ax.set_xlabel("Predicted")
@@ -319,7 +336,7 @@ if uploaded_file:
             st.subheader("Final Test Performance")
             st.text(classification_report(y_test, y_test_pred, zero_division=0))
 
-            # Save model + predictions
+            # Save model and predictions
             joblib.dump(best_model, "pollution_source_model.pkl")
             st.success("💾 Best model saved as pollution_source_model.pkl")
 
