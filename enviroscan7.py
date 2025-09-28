@@ -17,6 +17,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import cross_validate
 from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import KFold
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -77,10 +78,10 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         df_aq['latitude'] = lat
         df_aq['longitude'] = lon
 
-    # Pivot to wide format for pollutants per location
-    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'parameter'])['value'].mean().reset_index()
+    # Pivot to wide format for pollutants per location and timestamp (keep time dimension)
+    df_agg = df_aq.groupby(['location_name', 'latitude', 'longitude', 'datetimeUtc', 'parameter'])['value'].last().reset_index()  # Use 'last' or 'mean' if multiple per time; adjust as needed
     df_wide = df_agg.pivot_table(
-        index=['location_name', 'latitude', 'longitude'],
+        index=['location_name', 'latitude', 'longitude', 'datetimeUtc'],
         columns='parameter',
         values='value'
     ).reset_index()
@@ -90,14 +91,21 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         if pollutant not in df_wide.columns:
             df_wide[pollutant] = np.nan
 
-    # Add OSM features for each unique location
-    osm_list = []
-    for _, row in df_wide.iterrows():
+    # Get unique locations and their OSM features
+    unique_locations = df_wide[['location_name', 'latitude', 'longitude']].drop_duplicates()
+    osm_dict = {}
+    for _, row in unique_locations.iterrows():
         osm_lat, osm_lon = row['latitude'], row['longitude']
         osm = extract_osm_features(osm_lat, osm_lon, radius=2000)
-        osm_list.append(osm)
-    st.write("OSM Features Sample:", osm_list[:1])
-    df_osm = pd.DataFrame(osm_list)
+        key = (row['location_name'], osm_lat, osm_lon)  # Unique key for location
+        osm_dict[key] = osm
+    
+    # Add OSM features to df_wide
+    def add_osm(row):
+        key = (row['location_name'], row['latitude'], row['longitude'])
+        return pd.Series(osm_dict.get(key, {}))
+    
+    df_osm = df_wide.apply(add_osm, axis=1)
     df_wide = pd.concat([df_wide, df_osm], axis=1)
 
     # Fetch weather data (city-level)
@@ -295,7 +303,7 @@ if uploaded_file:
             if X.shape[0] < 50:  # Arbitrary threshold for small datasets
                 st.warning("Small dataset detected. Using cross-validation instead of train-test split.")
                 for name, model in models.items():
-                    scores = cross_validate(model, X, y, cv=5, scoring=['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted'], return_train_score=False)
+                    scores = cross_validate(model, X, y, cv=KFold(n_splits=5, shuffle=True, random_state=42), scoring=['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted'], return_train_score=False)
                     st.write(f"{name} Cross-Validation Results:")
                     st.write(f"Accuracy: {scores['test_accuracy'].mean():.2f} ± {scores['test_accuracy'].std():.2f}")
                     st.write(f"Precision: {scores['test_precision_weighted'].mean():.2f} ± {scores['test_precision_weighted'].std():.2f}")
