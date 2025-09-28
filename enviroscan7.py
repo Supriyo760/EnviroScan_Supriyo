@@ -66,21 +66,28 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         df_aq["source"] = "OpenAQ"
     except Exception as e:
         print(f"⚠️ Failed to load AQ CSV: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), {}
 
-        # ✅ Create metadata as a DataFrame
-    metadata = {
-        "city": city,
-        "latitude": lat,
-        "longitude": lon,
-        "records": len(df_aq),
-        "source": "OpenAQ"
-    }
-    df_meta = pd.DataFrame([metadata])
+    # Aggregate average value per location per parameter
+    if 'latitude' not in df_aq.columns or 'longitude' not in df_aq.columns:
+        df_aq['latitude'] = lat
+        df_aq['longitude'] = lon
 
-    return df_aq, df_meta
+    df_agg = df_aq.groupby(['location_name', 'parameter', 'latitude', 'longitude'])['value'].mean().reset_index()
 
-    # Weather
+    # Pivot to wide format for pollutants
+    df_wide = df_agg.pivot(index=['location_name', 'latitude', 'longitude'], columns='parameter', values='value').reset_index()
+
+    # Add OSM features per location
+    osm_list = []
+    for idx, row in df_wide.iterrows():
+        osm_lat, osm_lon = row['latitude'], row['longitude']
+        osm = extract_osm_features(osm_lat, osm_lon, radius=2000)
+        osm_list.append(osm)
+    df_osm = pd.DataFrame(osm_list)
+    df_wide = pd.concat([df_wide, df_osm], axis=1)
+
+    # Fetch weather (current, city-level)
     weather_data = get_weather(lat, lon, openweather_key)
     weather_features = {
         "temp_c": weather_data.get("main", {}).get("temp"),
@@ -90,25 +97,23 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         "wind_dir": weather_data.get("wind", {}).get("deg"),
         "weather_source": "OpenWeatherMap"
     }
-
-    # OSM Features
-    osm_features = extract_osm_features(lat, lon, radius=2000)
+    for k, v in weather_features.items():
+        df_wide[k] = v
 
     # Metadata
     meta = {
         "city": city,
         "latitude": lat,
         "longitude": lon,
-        "records": len(df_aq),
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "records": len(df_wide),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "OpenAQ"
     }
-    meta.update(weather_features)
-    meta.update(osm_features)
 
-    return df_aq, meta
+    return df_wide, meta
 
 def save_datasets(df, filename):
-    if df is None or df.empty:
+    if df is None or (isinstance(df, pd.DataFrame) and df.empty):
         st.warning(f"{filename} is empty. Skipping save.")
         return
     if isinstance(df, dict):
@@ -153,31 +158,21 @@ if uploaded_file:
     lat, lon = 28.7041, 77.1025
 
     # Build dataset
-    df_aq, df_meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
+    df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
 
     if not df_aq.empty:
         save_datasets(df_aq, "delhi_aq_data")
-        save_datasets(df_meta, "delhi_meta_data")
-        consolidate_dataset(df_aq, df_meta, "delhi_environmental_data")
+        save_datasets(meta, "delhi_meta_data")
+        consolidate_dataset(df_aq, meta, "delhi_environmental_data")
 
         st.success("✅ Dataset processing complete.")
 
         # --- Data Cleaning ---
         df = pd.read_csv("delhi_environmental_data.csv")
 
-        # --- Horizontal pivot preview for stations & pollutants only ---
-        if "parameter" in df.columns and "value" in df.columns:
-            df_preview = df[['location_name', 'parameter', 'value']].copy()
-            df_horizontal = df_preview.pivot_table(
-                index='location_name',
-                columns='parameter',
-                values='value',
-                aggfunc='first'
-            ).reset_index()
-            st.subheader("📊 AQ Dataset Preview (horizontal format)")
-            st.dataframe(df_horizontal.head(10))
-        else:
-            st.warning("⚠️ 'parameter' or 'value' columns missing, cannot pivot")
+        # --- Preview (since now wide, no need for pivot) ---
+        st.subheader("📊 AQ Dataset Preview")
+        st.dataframe(df.head(10))
 
         # --- Fill missing pollutants ---
         pollutant_cols = [c for c in POLLUTANTS if c in df.columns]
@@ -233,7 +228,7 @@ if uploaded_file:
 
         # Assign pollution sources
         required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
-        if any(col in df.columns for col in required_cols):
+        if all(col in df.columns for col in required_cols):
             df["pollution_source"] = df.apply(label_source, axis=1)
         else:
             st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
