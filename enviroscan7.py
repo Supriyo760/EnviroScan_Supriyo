@@ -59,18 +59,28 @@ def extract_osm_features(lat, lon, radius=2000):  # Increased radius for better 
 
 def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     try:
+        # Debug: Inspect the raw file content
+        aq_csv_file.seek(0)  # Reset file pointer
+        raw_content = aq_csv_file.read().decode('utf-8').splitlines()[:5]  # Read first 5 lines
+        st.write("First 5 lines of uploaded CSV:", raw_content)
+        
+        # Reset file pointer for pandas
+        aq_csv_file.seek(0)
         df_aq = pd.read_csv(
             aq_csv_file,
-            skiprows=2,  # Adjust if your CSV has different header rows
+            skiprows=0,  # Start with no skiprows to test
             on_bad_lines="skip",
-            engine="python"
+            engine="python",
+            encoding='utf-8'
         )
+        st.write("Raw CSV columns:", df_aq.columns.tolist())
+        st.write("Raw CSV shape:", df_aq.shape)
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
         
-        # Debug: Verify stations (optional, remove after testing)
-        # st.write("Unique stations in raw CSV:", df_aq['location_name'].nunique())
-        # st.write("Stations:", df_aq['location_name'].unique().tolist())
+        # Debug: Verify stations
+        st.write("Unique stations in raw CSV:", df_aq['location_name'].nunique())
+        st.write("Stations:", df_aq['location_name'].unique().tolist())
         
     except Exception as e:
         st.error(f"⚠️ Failed to load AQ CSV: {e}")
@@ -207,7 +217,9 @@ if uploaded_file:
 
         # After build_dataset and labeling
         df, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
-        if not df.empty:
+        # Use df_aq from build_dataset directly (avoid re-reading CSV)
+        if not df_aq.empty:
+            df = df_aq  # Use the DataFrame from build_dataset
             # Add pollution source labels BEFORE scaling
             required_cols = ['pm25', 'roads_count', 'industries_count', 'farms_count']
             if all(col in df.columns for col in required_cols):
