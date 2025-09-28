@@ -195,14 +195,28 @@ if uploaded_file:
                 df[col] = 0
 
         # Create features
-        pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
+     pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
+
         if pollutant_cols:
             df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
         else:
-            st.error("⚠️ No pollutant columns (pm25, pm10, no2, o3) found in dataset.")
+            st.warning("⚠️ No pollutant columns found, setting aqi_proxy to NaN")
             df["aqi_proxy"] = np.nan
-        df["pollution_per_road"] = df["pm25"] / (df["roads_count"]+1)
-        df["aqi_category"] = df["aqi_proxy"].apply(lambda x: "Good" if x<=50 else "Moderate" if x<=100 else "Unhealthy" if x<=200 else "Hazardous")
+        
+        if "pm25" in df.columns and "roads_count" in df.columns:
+            df["pollution_per_road"] = df["pm25"] / (df["roads_count"] + 1)
+        else:
+            st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
+            df["pollution_per_road"] = np.nan
+        
+        df["aqi_category"] = df["aqi_proxy"].apply(
+            lambda x: (
+                "Good" if pd.notna(x) and x <= 50 else
+                "Moderate" if pd.notna(x) and x <= 100 else
+                "Unhealthy" if pd.notna(x) and x <= 200 else
+                "Hazardous"
+            )
+        )
 
         # Standardize numeric columns
         num_cols = ["pm25","pm10","no2","co","so2","o3","roads_count","industries_count","farms_count","dumps_count","aqi_proxy","pollution_per_road"] + weather_cols
