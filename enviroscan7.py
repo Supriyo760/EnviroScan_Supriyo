@@ -195,7 +195,7 @@ if uploaded_file:
                 df[col] = 0
 
         # Create features
-             pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
+                pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
         
                 if pollutant_cols:
                     df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
