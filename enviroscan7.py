@@ -161,21 +161,21 @@ if uploaded_file:
 
         # Pivot pollutants
         # Pivot pollutants safely
-if "parameter" in df.columns and "value" in df.columns:
-    expected_cols = ["location_name", "city", "latitude", "longitude", "timestamp"]
-    missing = [col for col in expected_cols if col not in df.columns]
-
-    if missing:
-        st.error(f"⚠️ Missing columns for pivot: {missing}")
-    else:
-        df = df.pivot_table(
-            index=expected_cols,
-            columns="parameter",
-            values="value",
-            aggfunc="first"
-        ).reset_index()
-        df.columns.name = None
-        st.success("✅ Pivot table created successfully")
+        if "parameter" in df.columns and "value" in df.columns:
+            expected_cols = ["location_name", "city", "latitude", "longitude", "timestamp"]
+            missing = [col for col in expected_cols if col not in df.columns]
+        
+            if missing:
+                st.error(f"⚠️ Missing columns for pivot: {missing}")
+            else:
+                df = df.pivot_table(
+                    index=expected_cols,
+                    columns="parameter",
+                    values="value",
+                    aggfunc="first"
+                ).reset_index()
+                df.columns.name = None
+                st.success("✅ Pivot table created successfully")
 
 
         # Fill missing pollutants
