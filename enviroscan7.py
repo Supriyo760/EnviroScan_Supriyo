@@ -58,9 +58,10 @@ def extract_osm_features(lat, lon, radius=2000): # Increased radius for better f
 
 def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     try:
-        aq_csv_file.seek(0)  # Reset file pointer
-        raw_content = aq_csv_file.read().decode('utf-8').splitlines()[:5]  # Read first 5 lines
-        st.write("First 5 lines of uploaded CSV:", raw_content)
+        # Debug: Inspect raw file content
+        aq_csv_file.seek(0)
+        raw_content = aq_csv_file.read().decode('utf-8', errors='replace').splitlines()[:10]
+        st.write("First 10 lines of uploaded CSV:", raw_content)
         
         # Reset file pointer for pandas
         aq_csv_file.seek(0)
@@ -77,6 +78,27 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
         
+        # Check for expected columns and rename if necessary
+        expected_cols = ['location_name', 'parameter', 'value', 'datetimeUtc', 'latitude', 'longitude']
+        col_mapping = {
+            'location': 'location_name',
+            'station_name': 'location_name',
+            'date.utc': 'datetimeUtc',
+            'value': 'value',
+            'parameter': 'parameter',
+            'lat': 'latitude',
+            'lon': 'longitude'
+        }
+        for old_col, new_col in col_mapping.items():
+            if old_col in df_aq.columns and new_col not in df_aq.columns:
+                df_aq.rename(columns={old_col: new_col}, inplace=True)
+        
+        # Verify critical columns
+        missing_cols = [col for col in ['location_name', 'parameter', 'value', 'datetimeUtc'] if col not in df_aq.columns]
+        if missing_cols:
+            st.error(f"⚠️ Missing critical columns: {missing_cols}")
+            return pd.DataFrame(), {}
+        
         # Debug: Verify stations
         st.write("Unique stations in raw CSV:", df_aq['location_name'].nunique())
         st.write("Stations:", df_aq['location_name'].unique().tolist())
@@ -84,7 +106,6 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     except Exception as e:
         st.error(f"⚠️ Failed to load AQ CSV: {e}")
         return pd.DataFrame(), {}
-
     # Ensure latitude and longitude are present
     if 'latitude' not in df_aq.columns or 'longitude' not in df_aq.columns:
         df_aq['latitude'] = lat
