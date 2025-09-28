@@ -66,7 +66,7 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
             engine="python"
         )
         st.write("Raw AQ data shape:", df_aq.shape)
-        st.write("Raw AQ data columns:", df_aq.columns.tolist())
+        #st.write("Raw AQ data columns:", df_aq.columns.tolist())
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
     except Exception as e:
@@ -110,7 +110,7 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
 
     # Fetch weather data (city-level)
     weather_data = get_weather(lat, lon, openweather_key)
-    st.write("Weather Data:", weather_data)
+    #st.write("Weather Data:", weather_data)
     weather_features = {
         "temp_c": weather_data.get("main", {}).get("temp"),
         "humidity": weather_data.get("main", {}).get("humidity"),
