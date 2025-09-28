@@ -1,4 +1,16 @@
 # Enviroscan7 Streamlit App
+
+# --- Cleanup Script (Step 2) ---
+with open(__file__, "r", encoding="utf-8") as f:
+    code = f.read()
+
+# Replace non-breaking spaces with normal spaces
+code = code.replace("\u00a0", " ")
+
+with open(__file__, "w", encoding="utf-8") as f:
+    f.write(code)
+
+print("✅ Cleaned non-breaking spaces")
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
@@ -52,17 +64,6 @@ def extract_osm_features(lat, lon, radius=2000): # Increased radius for better f
     except:
         features["dumps_count"] = 0
     return features
-# --- Cleanup Script ---
-with open("enviroscan7.py", "r", encoding="utf-8") as f:
-    code = f.read()
-
-# Replace invisible U+00A0 with normal space
-code = code.replace("\u00a0", " ")
-
-with open("enviroscan7.py", "w", encoding="utf-8") as f:
-    f.write(code)
-
-print("✅ Cleaned non-breaking spaces")
 
 def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     try:
