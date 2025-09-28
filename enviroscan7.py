@@ -1,3 +1,16 @@
+# --- Cleanup Script ---
+with open("enviroscan7.py", "r", encoding="utf-8") as f:
+    code = f.read()
+
+# Replace invisible U+00A0 with normal space
+code = code.replace("\u00a0", " ")
+
+with open("enviroscan7.py", "w", encoding="utf-8") as f:
+    f.write(code)
+
+print("✅ Cleaned non-breaking spaces")
+
+
 # Enviroscan7 Streamlit App
 # -*- coding: utf-8 -*-
 import streamlit as st
@@ -25,7 +38,7 @@ POLLUTANTS = ["pm25", "pm10", "no2", "co", "so2", "o3"]
 OPENWEATHER_KEY = "f931ecc3a4864ae98a35630e7a9f5bc2"
 # --- Helper Functions ---
 def get_weather(lat, lon, api_key):
-    url= "http://api.openweathermap.org/data/2.5/weather"
+    url = "http://api.openweathermap.org/data/2.5/weather"
     resp = requests.get(url, params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric"})
     return resp.json() if resp.status_code == 200 else {}
 def extract_osm_features(lat, lon, radius=2000): # Increased radius for better feature capture
