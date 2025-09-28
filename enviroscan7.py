@@ -15,6 +15,8 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_validate
+from imblearn.over_sampling import SMOTE
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -62,6 +64,8 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
             on_bad_lines="skip",
             engine="python"
         )
+        st.write("Raw AQ data shape:", df_aq.shape)
+        st.write("Raw AQ data columns:", df_aq.columns.tolist())
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
         df_aq["source"] = "OpenAQ"
     except Exception as e:
@@ -92,11 +96,13 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
         osm_lat, osm_lon = row['latitude'], row['longitude']
         osm = extract_osm_features(osm_lat, osm_lon, radius=2000)
         osm_list.append(osm)
+    st.write("OSM Features Sample:", osm_list[:1])
     df_osm = pd.DataFrame(osm_list)
     df_wide = pd.concat([df_wide, df_osm], axis=1)
 
     # Fetch weather data (city-level)
     weather_data = get_weather(lat, lon, openweather_key)
+    st.write("Weather Data:", weather_data)
     weather_features = {
         "temp_c": weather_data.get("main", {}).get("temp"),
         "humidity": weather_data.get("main", {}).get("humidity"),
@@ -253,95 +259,98 @@ if uploaded_file:
             st.info("Training models...")
             X = df.drop(columns=["pollution_source"])
             y = df["pollution_source"]
+            # Ensure consistent samples
+            st.write(f"X shape: {X.shape}, y shape: {y.shape}")
+            valid_idx = ~y.isna()
+            X = X[valid_idx]
+            y = y[valid_idx]
+            st.write(f"After cleaning: X shape: {X.shape}, y shape: {y.shape}")
+            # Check class distribution
+            st.write("Class distribution before resampling:")
+            st.write(pd.Series(y).value_counts())
+            # Visualize class distribution
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.countplot(x="pollution_source", data=df, ax=ax, palette="viridis")
+            ax.set_title("Pollution Source Distribution")
+            ax.set_xlabel("Pollution Source")
+            ax.set_ylabel("Count")
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
 
             # Keep only numeric features
             X = X.select_dtypes(include=[np.number])
 
-            # Check if stratification is possible
-            if len(y.unique()) < 2:
-                st.warning("⚠️ Only one class in pollution_source. Disabling stratification.")
-                stratify = None
-            else:
-                stratify = y
-
-            # Split data
-            try:
-                X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=stratify)
-                X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=stratify)
-            except ValueError as e:
-                st.error(f"⚠️ Failed to split data: {e}. Proceeding without stratification.")
-                X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
-                X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
-
-            # Balance training data
-            df_train = pd.concat([X_train, y_train], axis=1)
-            majority_class = df_train["pollution_source"].value_counts().idxmax()
-            dfs = []
-            for label in df_train["pollution_source"].unique():
-                subset = df_train[df_train["pollution_source"] == label]
-                if label != majority_class:
-                    subset = resample(subset, replace=True, n_samples=df_train[df_train["pollution_source"] == majority_class].shape[0], random_state=42)
-                dfs.append(subset)
-            df_train_balanced = pd.concat(dfs)
-            X_train = df_train_balanced.drop(columns=["pollution_source"])
-            y_train = df_train_balanced["pollution_source"]
-
             # Impute and scale
             imputer = SimpleImputer(strategy="median")
-            X_train = imputer.fit_transform(X_train)
-            X_val = imputer.transform(X_val)
-            X_test = imputer.transform(X_test)
-
+            X = imputer.fit_transform(X)
             scaler = StandardScaler()
-            X_train = scaler.fit_transform(X_train)
-            X_val = scaler.transform(X_val)
-            X_test = scaler.transform(X_test)
+            X = scaler.fit_transform(X)
 
+            # Use simpler models
             models = {
-                "Logistic Regression": LogisticRegression(max_iter=1000),
-                "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
-                "Neural Network": MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=500, random_state=42)
+                "Logistic Regression": LogisticRegression(max_iter=1000, C=0.1, random_state=42)
             }
 
-            performance = {}
-            for name, model in models.items():
-                st.write(f"Training {name}...")
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_val)
-
-                acc = accuracy_score(y_val, y_pred)
-                prec = precision_score(y_val, y_pred, average="weighted", zero_division=0)
-                rec = recall_score(y_val, y_pred, average="weighted", zero_division=0)
-                f1 = f1_score(y_val, y_pred, average="weighted", zero_division=0)
-
-                performance[name] = {"Accuracy": acc, "Precision": prec, "Recall": rec, "F1": f1}
-                st.write(f"Validation results for {name}:")
-                st.text(classification_report(y_val, y_pred, zero_division=0))
-
-                # Confusion matrix plot
-                cm = confusion_matrix(y_val, y_pred, labels=model.classes_)
-                fig, ax = plt.subplots(figsize=(6, 4))
-                sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=model.classes_, yticklabels=model.classes_, ax=ax)
-                ax.set_title(f"Confusion Matrix - {name}")
-                ax.set_xlabel("Predicted")
-                ax.set_ylabel("Actual")
-                st.pyplot(fig)
-
-            best_model_name = max(performance, key=lambda k: performance[k]["F1"])
-            best_model = models[best_model_name]
-            st.success(f"🏆 Best model selected: {best_model_name}")
-
-            # Evaluate on test set
-            y_test_pred = best_model.predict(X_test)
-            st.subheader("Final Test Performance")
-            st.text(classification_report(y_test, y_test_pred, zero_division=0))
-
-            # Save model and predictions
-            joblib.dump(best_model, "pollution_source_model.pkl")
-            st.success("💾 Best model saved as pollution_source_model.pkl")
-
-            X_test_orig = pd.DataFrame(X_test, columns=X.select_dtypes(include=[np.number]).columns)
-            X_test_orig["actual_source"] = y_test.reset_index(drop=True)
-            X_test_orig["predicted_source"] = y_test_pred
-            X_test_orig.to_csv("final_predictions.csv", index=False)
-            st.success("💾 Final predictions saved as final_predictions.csv")
+            # Use cross-validation for small datasets
+            if X.shape[0] < 50:  # Arbitrary threshold for small datasets
+                st.warning("Small dataset detected. Using cross-validation instead of train-test split.")
+                for name, model in models.items():
+                    scores = cross_validate(model, X, y, cv=5, scoring=['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted'], return_train_score=False)
+                    st.write(f"{name} Cross-Validation Results:")
+                    st.write(f"Accuracy: {scores['test_accuracy'].mean():.2f} ± {scores['test_accuracy'].std():.2f}")
+                    st.write(f"Precision: {scores['test_precision_weighted'].mean():.2f} ± {scores['test_precision_weighted'].std():.2f}")
+                    st.write(f"Recall: {scores['test_recall_weighted'].mean():.2f} ± {scores['test_recall_weighted'].std():.2f}")
+                    st.write(f"F1: {scores['test_f1_weighted'].mean():.2f} ± {scores['test_f1_weighted'].std():.2f}")
+            else:
+                # Split data
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                from imblearn.over_sampling import SMOTE
+                # Balance training data with SMOTE
+                if len(y_train.value_counts()) > 1 and min(y_train.value_counts()) > 1:
+                    smote = SMOTE(random_state=42)
+                    X_train, y_train = smote.fit_resample(X_train, y_train)
+                    st.write("Class distribution after SMOTE:")
+                    st.write(pd.Series(y_train).value_counts())
+                else:
+                    st.warning("Not enough samples for SMOTE. Proceeding with original training data.")
+    
+                # Impute and scale
+                X_train = imputer.fit_transform(X_train)
+                X_test = imputer.transform(X_test)
+                X_train = scaler.fit_transform(X_train)
+                X_test = scaler.transform(X_test)
+    
+                performance = {}
+                for name, model in models.items():
+                    st.write(f"Training {name}...")
+                    model.fit(X_train, y_train)
+                    y_pred = model.predict(X_test)
+                    acc = accuracy_score(y_test, y_pred)
+                    prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
+                    rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
+                    f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
+                    performance[name] = {"Accuracy": acc, "Precision": prec, "Recall": rec, "F1": f1}
+                    st.write(f"Test results for {name}:")
+                    st.text(classification_report(y_test, y_pred, zero_division=0))
+        
+                    # Confusion matrix
+                    cm = confusion_matrix(y_test, y_pred, labels=model.classes_)
+                    fig, ax = plt.subplots(figsize=(6, 4))
+                    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=model.classes_, yticklabels=model.classes_, ax=ax)
+                    ax.set_title(f"Confusion Matrix - {name}")
+                    ax.set_xlabel("Predicted")
+                    ax.set_ylabel("Actual")
+                    st.pyplot(fig)
+                
+                # Save best model
+                best_model_name = max(performance, key=lambda k: performance[k]["F1"])
+                best_model = models[best_model_name]
+                joblib.dump(best_model, "pollution_source_model.pkl")
+                st.success(f"💾 Best model saved as pollution_source_model.pkl")
+                
+                # Save predictions
+                X_test_orig = pd.DataFrame(X_test, columns=X.select_dtypes(include=[np.number]).columns)
+                X_test_orig["actual_source"] = y_test.reset_index(drop=True)
+                X_test_orig["predicted_source"] = y_pred
+                X_test_orig.to_csv("final_predictions.csv", index=False)
+                st.success("💾 Final predictions saved as final_predictions.csv")
