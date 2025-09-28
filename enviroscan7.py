@@ -119,7 +119,7 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     osm_dict = {}
     for _, row in unique_locations.iterrows():
         osm = extract_osm_features(row['latitude'], row['longitude'], radius=2000)
-        key = (row['location_name'], row['latitude', row['longitude'])
+        key = (row['location_name'], row['latitude'], row['longitude'])
         osm_dict[key] = osm
 
     df_osm = df_wide.apply(lambda row: pd.Series(osm_dict.get((row['location_name'], row['latitude'], row['longitude']),
