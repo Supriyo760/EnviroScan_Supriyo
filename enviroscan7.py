@@ -233,6 +233,13 @@ if uploaded_file:
                 "Hazardous"
             )
         )
+        # --- Assign pollution sources ---
+        required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
+        if all(col in df.columns for col in required_cols):
+            df["pollution_source"] = df.apply(label_source, axis=1)
+        else:
+            st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
+            df["pollution_source"] = "Unknown"
 
         # --- Standardize numeric columns ---
         num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", "industries_count", "farms_count", "dumps_count", "aqi_proxy", "pollution_per_road"] + weather_cols
@@ -246,14 +253,7 @@ if uploaded_file:
         if categorical_cols:
             df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-        # --- Assign pollution sources ---
-        required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
-        if all(col in df.columns for col in required_cols):
-            df["pollution_source"] = df.apply(label_source, axis=1)
-        else:
-            st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
-            df["pollution_source"] = "Unknown"
-
+        
         # Save cleaned dataset
         df.to_csv("cleaned_environmental_data.csv", index=False)
         st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
