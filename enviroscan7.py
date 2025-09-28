@@ -165,59 +165,49 @@ if uploaded_file:
         # --- Data Cleaning ---
         df = pd.read_csv("delhi_environmental_data.csv")
 
-        # Pivot pollutants
-        # Pivot pollutants safely
-        # --- Determine pivot index dynamically ---
-        pivot_index = [col for col in ["location_name", "city", "latitude", "longitude", "timestamp"] if col in df.columns]
-        
+        # --- Horizontal pivot preview for stations & pollutants only ---
         if "parameter" in df.columns and "value" in df.columns:
-            df = df.pivot_table(
-                index=pivot_index,
-                columns="parameter",
-                values="value",
-                aggfunc="first"  # or 'mean' if multiple readings per timestamp
+            df_preview = df[['location_name', 'parameter', 'value']].copy()
+            df_horizontal = df_preview.pivot_table(
+                index='location_name',
+                columns='parameter',
+                values='value',
+                aggfunc='first'
             ).reset_index()
-            df.columns.name = None
-            st.success("✅ Pivoted data with all stations and pollutants")
+            st.subheader("📊 AQ Dataset Preview (horizontal format)")
+            st.dataframe(df_horizontal.head(10))
         else:
             st.warning("⚠️ 'parameter' or 'value' columns missing, cannot pivot")
 
-
-        # Fill missing pollutants
-        # Keep all main pollutants
-        pollutant_cols = [c for c in ["pm25","pm10","no2","o3","co","so2"] if c in df.columns]
-        
+        # --- Fill missing pollutants ---
+        pollutant_cols = [c for c in POLLUTANTS if c in df.columns]
         for col in pollutant_cols:
             df[col] = df[col].fillna(df[col].median())
 
-        # Fill missing weather
+        # --- Fill missing weather ---
         weather_cols = ["temp_c","humidity","pressure","wind_speed","wind_dir"]
         for col in weather_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(df[col].mean())
 
-        # Ensure OSM features
+        # --- Ensure OSM features exist ---
         for col in ["roads_count","industries_count","farms_count","dumps_count"]:
             if col not in df.columns:
                 df[col] = 0
 
-        # Create features
-        pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
-        
+        # --- Create features ---
         if pollutant_cols:
             df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
         else:
             df["aqi_proxy"] = np.nan
             st.warning("⚠️ No pollutant columns found, aqi_proxy set to NaN")
-        
-        # Pollution per road
+
         if "pm25" in df.columns and "roads_count" in df.columns:
             df["pollution_per_road"] = df["pm25"] / (df["roads_count"] + 1)
         else:
             df["pollution_per_road"] = np.nan
             st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
-        
-        # AQI category
+
         df["aqi_category"] = df["aqi_proxy"].apply(
             lambda x: (
                 "Good" if pd.notna(x) and x <= 50 else
@@ -226,6 +216,8 @@ if uploaded_file:
                 "Hazardous"
             )
         )
+
+        # --- Continue rest of processing (scaling, encoding, labeling) as before ---
 
         # Standardize numeric columns
         num_cols = ["pm25","pm10","no2","co","so2","o3","roads_count","industries_count","farms_count","dumps_count","aqi_proxy","pollution_per_road"] + weather_cols
