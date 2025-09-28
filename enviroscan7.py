@@ -127,14 +127,20 @@ def consolidate_dataset(df_aq, df_meta, filename):
     st.success(f"Consolidated dataset saved as {filename}.csv")
 
 def label_source(row):
-    if row["pm25"] > 0 and row.get("industries_count",0) > 0:
+    pm25 = row.get("pm25", 0)
+    roads = row.get("roads_count", 0)
+    industries = row.get("industries_count", 0)
+    farms = row.get("farms_count", 0)
+    
+    if pm25 > 0 and industries > 0:
         return "Industrial"
-    elif row["pm25"] > 0 and row.get("roads_count",0) > 0:
+    elif pm25 > 0 and roads > 0:
         return "Traffic"
-    elif row.get("farms_count",0) > 0:
+    elif farms > 0:
         return "Agricultural"
     else:
         return "Mixed/Other"
+
 
 # --- Streamlit App ---
 st.title("Enviroscan Environmental Data Analysis")
@@ -231,7 +237,13 @@ if uploaded_file:
             df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
         # Assign pollution sources
-        df["pollution_source"] = df.apply(label_source, axis=1)
+        required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
+        if any(col in df.columns for col in required_cols):
+            df["pollution_source"] = df.apply(label_source, axis=1)
+        else:
+            st.warning("⚠️ Required columns for labeling pollution_source are missing. Skipping label assignment.")
+            df["pollution_source"] = "Unknown"
+
 
         # Save cleaned dataset
         df.to_csv("cleaned_environmental_data.csv", index=False)
