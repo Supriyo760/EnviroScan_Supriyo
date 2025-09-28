@@ -195,7 +195,12 @@ if uploaded_file:
                 df[col] = 0
 
         # Create features
-        df["aqi_proxy"] = df[["pm25","pm10","no2","o3"]].mean(axis=1)
+        pollutant_cols = [c for c in ["pm25","pm10","no2","o3"] if c in df.columns]
+        if pollutant_cols:
+            df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
+        else:
+            st.error("⚠️ No pollutant columns (pm25, pm10, no2, o3) found in dataset.")
+            df["aqi_proxy"] = np.nan
         df["pollution_per_road"] = df["pm25"] / (df["roads_count"]+1)
         df["aqi_category"] = df["aqi_proxy"].apply(lambda x: "Good" if x<=50 else "Moderate" if x<=100 else "Unhealthy" if x<=200 else "Hazardous")
 
