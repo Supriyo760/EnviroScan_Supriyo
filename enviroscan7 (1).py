@@ -226,6 +226,14 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
         df = df[df['datetimeUtc'].dt.date >= start_date]
     if end_date:
         df = df[df['datetimeUtc'].dt.date <= end_date]
+    # Temporarily disable source and location filters for testing
+    if source_filter and source_filter != "All":
+        df = df[df['pollution_source'] == source_filter]  # Keep but test with "All"
+    if location_filter:
+        df = df[(df['latitude'] >= location_filter.get('min_lat', lat - 1)) &  # Wider default range
+                (df['latitude'] <= location_filter.get('max_lat', lat + 1)) &
+                (df['longitude'] >= location_filter.get('min_lon', lon - 1)) &
+                (df['longitude'] <= location_filter.get('max_lon', lon + 1))]
     
     # Filter by predicted pollution source
     if source_filter and source_filter != "All":
@@ -394,15 +402,15 @@ if uploaded_file:
             if col not in df_filtered.columns:
                 df_filtered[col] = 0
         # In the main app, after data cleaning
-if pollutant_cols:
-    df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
-else:
-    df_filtered["aqi_proxy"] = 0  # Default to 0 if no pollutants
-    st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
-for col in POLLUTANTS:
-    if col not in df_filtered.columns:
-        df_filtered[col] = 0
-    df_filtered[col] = df_filtered[col].fillna(0)  # Force fill NaN with 0
+        if pollutant_cols:
+            df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
+        else:
+            df_filtered["aqi_proxy"] = 0  # Default to 0 if no pollutants
+            st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
+        for col in POLLUTANTS:
+            if col not in df_filtered.columns:
+                df_filtered[col] = 0
+            df_filtered[col] = df_filtered[col].fillna(0)  # Force fill NaN with 0
         if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
             df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
         else:
