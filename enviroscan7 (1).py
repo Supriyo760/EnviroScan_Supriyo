@@ -304,21 +304,58 @@ with col5:
     end_date = st.date_input("End Date", value=datetime(2025, 9, 15), key="end_date")
 time_range = f"{start_date} to {end_date}"
 
-# Additional Filters for Map
+# In the Map Filters section
 st.subheader("🗺️ Map Filters")
 col6, col7, col8 = st.columns(3)
 with col6:
     source_filter = st.selectbox("Predicted Pollution Source", options=["All", "Industrial", "Traffic", "Agricultural", "Mixed/Other"], key="source_filter")
 with col7:
     show_heatmap = st.checkbox("Show Heatmap", value=True, key="show_heatmap")
+    if show_heatmap:
+        heatmap_fields = [col for col in ['aqi_proxy'] + POLLUTANTS if col in df_filtered.columns]
+        heatmap_field = st.selectbox("Heatmap Field", options=heatmap_fields, key="heatmap_field", index=0)
 with col8:
-    # Simple location filter (bounding box)
     min_lat = st.number_input("Min Latitude", value=28.0, format="%.4f", key="min_lat")
     max_lat = st.number_input("Max Latitude", value=29.0, format="%.4f", key="max_lat")
     min_lon = st.number_input("Min Longitude", value=76.0, format="%.4f", key="min_lon")
     max_lon = st.number_input("Max Longitude", value=78.0, format="%.4f", key="max_lon")
 location_filter = {'min_lat': min_lat, 'max_lat': max_lat, 'min_lon': min_lon, 'max_lon': max_lon}
 
+# Update create_folium_map function
+def create_folium_map(df, start_date=None, end_date=None, source_filter=None, location_filter=None, show_heatmap=True, heatmap_field='aqi_proxy'):
+    # ... (existing code up to aggregation)
+    
+    # Add heatmap if enabled
+    if show_heatmap and heatmap_field in aggregated_df.columns:
+        st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
+        max_val = aggregated_df[heatmap_field].max()
+        min_val = aggregated_df[heatmap_field].min()
+        if max_val == min_val or pd.isna(max_val):
+            normalized_val = [1.0 for _ in aggregated_df[heatmap_field]]
+        else:
+            normalized_val = [(row[heatmap_field] - min_val) / (max_val - min_val) for row in aggregated_df.itertuples()]
+        
+        heat_data = [[row['latitude'], row['longitude'], norm_val] 
+                     for row, norm_val in zip(aggregated_df.itertuples(), normalized_val) 
+                     if pd.notna(row._asdict()[heatmap_field])]
+        if not heat_data:
+            st.warning("No valid data for heatmap. Check filters or data.")
+        else:
+            HeatMap(heat_data, radius=15, blur=10, gradient={0.0: 'blue', 0.5: 'lime', 1.0: 'red'}).add_to(m)
+    
+    # ... (existing marker code)
+    return m
+
+# Update Map Integration call
+st.subheader("🗺️ Pollution Map")
+if not df_filtered.empty:
+    map_obj = create_folium_map(df_filtered, start_date=start_date, end_date=end_date, source_filter=source_filter, location_filter=location_filter, show_heatmap=show_heatmap, heatmap_field=heatmap_field)
+    if map_obj:
+        st_folium(map_obj, width=700, height=500, key="pollution_map")
+    else:
+        st.warning("Unable to render map due to missing data.")
+else:
+    st.warning("No data for map visualization.")
 # File Uploader
 uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="file_uploader")
 if uploaded_file:
