@@ -257,21 +257,33 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
     # Add heatmap if enabled
     if show_heatmap and heatmap_field in aggregated_df.columns:
         st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
-        # Ensure heatmap_field values are numeric
+        # Convert to numeric and handle NaN
         aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
-        max_val = aggregated_df[heatmap_field].max()
-        min_val = aggregated_df[heatmap_field].min()
+        # Drop rows with NaN in heatmap_field to avoid issues
+        aggregated_df = aggregated_df.dropna(subset=[heatmap_field])
+        if aggregated_df.empty:
+            st.warning("No valid numeric data for heatmap after dropping NaN values.")
+            return m
+        
+        # Compute max and min, excluding NaN
+        valid_values = aggregated_df[heatmap_field].dropna()
+        if len(valid_values) == 0:
+            st.warning("No valid numeric values for heatmap normalization.")
+            return m
+        max_val = valid_values.max()
+        min_val = valid_values.min()
         
         # Handle edge cases
         if pd.isna(max_val) or pd.isna(min_val) or max_val == min_val:
             st.warning("Invalid range for normalization (all values same or NaN). Setting normalized values to 1.0.")
             normalized_val = [1.0 for _ in range(len(aggregated_df))]
         else:
-            normalized_val = [(row[heatmap_field] - min_val) / (max_val - min_val) for row in aggregated_df.itertuples()]
+            # Use a safer approach with vectorized operations
+            normalized_val = ((aggregated_df[heatmap_field] - min_val) / (max_val - min_val)).fillna(1.0).tolist()
         
         heat_data = [[row['latitude'], row['longitude'], norm_val] 
                      for row, norm_val in zip(aggregated_df.itertuples(), normalized_val) 
-                     if pd.notna(row._asdict()[heatmap_field])]
+                     if pd.notna(norm_val)]
         if not heat_data:
             st.warning("No valid data for heatmap. Check filters or data.")
         else:
