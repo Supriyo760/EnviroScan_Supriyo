@@ -26,6 +26,8 @@ from reportlab.pdfgen import canvas
 import io
 import smtplib
 from email.mime.text import MIMEText
+from folium.plugins import HeatMap
+
 # --- Constants ---
 POLLUTANTS = ["pm25", "pm10", "no2", "co", "so2", "o3"]
 OPENWEATHER_KEY = "f931ecc3a4864ae98a35630e7a9f5bc2"
@@ -36,6 +38,7 @@ EMAIL_PASSWORD = "ryrl xtng ocix nvbn"  # Replace with your email password
 EMAIL_RECEIVER = "danger49491358@gmail.com"  # Replace with recipient email
 SMTP_SERVER = "smtp.gmail.com"  # Example for Gmail
 SMTP_PORT = 587
+
 # --- Helper Functions ---
 def get_weather(lat, lon, api_key):
     url = "http://api.openweathermap.org/data/2.5/weather"
@@ -210,29 +213,77 @@ def send_email_alert(pollutant, value, station, threshold):
         st.error(f"Failed to send email alert: {e}")
         return False
 
-def create_folium_map(df):
+def create_folium_map(df, start_date=None, end_date=None, source_filter=None, location_filter=None, show_heatmap=True):
     # Check if DataFrame is empty or missing required columns
-    required_cols = ['latitude', 'longitude', 'location_name']
+    required_cols = ['latitude', 'longitude', 'location_name', 'datetimeUtc', 'aqi_proxy', 'pollution_source']
     if df.empty or not all(col in df.columns for col in required_cols):
         st.warning("DataFrame is empty or missing required columns for map visualization.")
         return None
     
-    # Group by location_name and take first row, resetting index to keep location_name as column
-    unique_stations = df.groupby('location_name').first().reset_index()
+    # Filter by date range if provided
+    df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'])
+    if start_date:
+        df = df[df['datetimeUtc'].dt.date >= start_date]
+    if end_date:
+        df = df[df['datetimeUtc'].dt.date <= end_date]
+    
+    # Filter by predicted pollution source
+    if source_filter and source_filter != "All":
+        df = df[df['pollution_source'] == source_filter]
+    
+    # Filter by geographic location (simple bounding box filter example; enhance as needed)
+    if location_filter:
+        # Assuming location_filter is a dict with min_lat, max_lat, min_lon, max_lon
+        df = df[(df['latitude'] >= location_filter.get('min_lat', -90)) &
+                (df['latitude'] <= location_filter.get('max_lat', 90)) &
+                (df['longitude'] >= location_filter.get('min_lon', -180)) &
+                (df['longitude'] <= location_filter.get('max_lon', 180))]
+    
+    if df.empty:
+        st.warning("No data available after applying filters.")
+        return None
+    
+    # Group by location_name and calculate mean values
+    aggregated_df = df.groupby('location_name').agg({
+        'latitude': 'first',
+        'longitude': 'first',
+        'aqi_proxy': 'mean',
+        'pollution_source': 'first'  # or 'mode' if multiple
+    }).reset_index()
     
     # Calculate map center
-    center_lat = unique_stations['latitude'].mean()
-    center_lon = unique_stations['longitude'].mean()
+    center_lat = aggregated_df['latitude'].mean()
+    center_lon = aggregated_df['longitude'].mean()
     m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
     
-    # Add markers for each station
-    for _, row in unique_stations.iterrows():
+    # Add heatmap if enabled
+    if show_heatmap and 'aqi_proxy' in aggregated_df.columns:
+        heat_data = [[row['latitude'], row['longitude'], row['aqi_proxy']] for _, row in aggregated_df.iterrows() if pd.notna(row['aqi_proxy'])]
+        HeatMap(heat_data, radius=15, blur=10, gradient={0.4: 'blue', 0.65: 'lime', 1: 'red'}).add_to(m)
+    
+    # Add source-specific markers with color gradients based on pollution levels
+    for _, row in aggregated_df.iterrows():
+        if pd.isna(row['aqi_proxy']):
+            continue
+        # Determine marker color based on source
+        source_color = {
+            'Industrial': 'blue',
+            'Traffic': 'red',  # Changed from 'Vehicular' to 'Traffic' to match label_source
+            'Agricultural': 'green',
+            'Mixed/Other': 'gray'
+        }.get(row['pollution_source'], 'black')
+        
+        # Adjust icon color based on pollution severity (aqi_proxy)
+        severity_color = 'green' if row['aqi_proxy'] <= 50 else 'yellow' if row['aqi_proxy'] <= 100 else 'orange' if row['aqi_proxy'] <= 200 else 'red'
+        
         folium.Marker(
             location=[row['latitude'], row['longitude']],
-            popup=f"{row['location_name']}<br>PM2.5: {row.get('pm25', 'N/A')}<br>Source: {row.get('pollution_source', 'N/A')}",
-            icon=folium.Icon(color='blue' if row.get('pollution_source') == 'Industrial' else 'red')
+            popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
+            icon=folium.Icon(color=severity_color, icon='cloud', prefix='fa')  # Use severity for color
         ).add_to(m)
+    
     return m
+
 # --- Streamlit App ---
 st.title("Enviroscan Environmental Data Dashboard")
 
@@ -252,6 +303,21 @@ with col4:
 with col5:
     end_date = st.date_input("End Date", value=datetime(2025, 9, 15), key="end_date")
 time_range = f"{start_date} to {end_date}"
+
+# Additional Filters for Map
+st.subheader("🗺️ Map Filters")
+col6, col7, col8 = st.columns(3)
+with col6:
+    source_filter = st.selectbox("Predicted Pollution Source", options=["All", "Industrial", "Traffic", "Agricultural", "Mixed/Other"], key="source_filter")
+with col7:
+    show_heatmap = st.checkbox("Show Heatmap", value=True, key="show_heatmap")
+with col8:
+    # Simple location filter (bounding box)
+    min_lat = st.number_input("Min Latitude", value=28.0, format="%.4f", key="min_lat")
+    max_lat = st.number_input("Max Latitude", value=29.0, format="%.4f", key="max_lat")
+    min_lon = st.number_input("Min Longitude", value=76.0, format="%.4f", key="min_lon")
+    max_lon = st.number_input("Max Longitude", value=78.0, format="%.4f", key="max_lon")
+location_filter = {'min_lat': min_lat, 'max_lat': max_lat, 'min_lon': min_lon, 'max_lon': max_lon}
 
 # File Uploader
 uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="file_uploader")
@@ -422,7 +488,7 @@ if uploaded_file:
                     st.write(f"Training {name}...")
                     model.fit(X_train, y_train)
                     y_pred = model.predict(X_test)
-                    y_proba = model.predict_proba(X_test)
+                    y_proba = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
                     acc = accuracy_score(y_test, y_pred)
                     prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
                     rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
@@ -437,9 +503,12 @@ if uploaded_file:
                     st.subheader(f"📋 Predictions for {name}")
                     pred_df = pd.DataFrame({
                         'Actual Source': y_test,
-                        'Predicted Source': y_pred,
-                        'Confidence': [max(proba) for proba in y_proba]
+                        'Predicted Source': y_pred
                     })
+                    if y_proba is not None:
+                        pred_df['Confidence'] = [max(proba) for proba in y_proba]
+                    else:
+                        pred_df['Confidence'] = np.nan
                     # Join with df_model using test_indices
                     pred_df = pred_df.join(df_model[['location_name', 'datetimeUtc']].iloc[test_indices])
                     st.dataframe(pred_df)
@@ -459,13 +528,16 @@ if uploaded_file:
                 X_test_orig = pd.DataFrame(X_test, columns=numeric_columns)
                 X_test_orig["actual_source"] = y_test.reset_index(drop=True)
                 X_test_orig["predicted_source"] = y_pred
-                X_test_orig["confidence"] = [max(proba) for proba in y_proba]
+                if y_proba is not None:
+                    X_test_orig["confidence"] = [max(proba) for proba in y_proba]
+                else:
+                    X_test_orig["confidence"] = np.nan
                 X_test_orig.to_csv("final_predictions.csv", index=False)
                 st.success("💾 Final predictions saved as final_predictions.csv")
         # --- Map Integration ---
         st.subheader("🗺️ Pollution Map")
         if not df_filtered.empty:
-            map_obj = create_folium_map(df_filtered)
+            map_obj = create_folium_map(df_filtered, start_date=start_date, end_date=end_date, source_filter=source_filter, location_filter=location_filter, show_heatmap=show_heatmap)
             if map_obj:
                 st_folium(map_obj, width=700, height=500, key="pollution_map")
             else:
