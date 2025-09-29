@@ -9,7 +9,6 @@ from datetime import datetime, timezone, timedelta
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
-from sklearn.utils import resample
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -241,21 +240,21 @@ st.title("Enviroscan Environmental Data Dashboard")
 st.subheader("📍 Input Parameters")
 col1, col2, col3 = st.columns(3)
 with col1:
-    city = st.text_input("City", value="Delhi")
+    city = st.text_input("City", value="Delhi", key="city_input")
 with col2:
-    lat = st.number_input("Latitude", value=28.7041, format="%.4f")
+    lat = st.number_input("Latitude", value=28.7041, format="%.4f", key="lat_input")
 with col3:
-    lon = st.number_input("Longitude", value=77.1025, format="%.4f")
+    lon = st.number_input("Longitude", value=77.1025, format="%.4f", key="lon_input")
 st.subheader("📅 Time Range")
 col4, col5 = st.columns(2)
 with col4:
-    start_date = st.date_input("Start Date", value=datetime(2025, 9, 1))
+    start_date = st.date_input("Start Date", value=datetime(2025, 9, 1), key="start_date")
 with col5:
-    end_date = st.date_input("End Date", value=datetime(2025, 9, 15))
+    end_date = st.date_input("End Date", value=datetime(2025, 9, 15), key="end_date")
 time_range = f"{start_date} to {end_date}"
 
 # File Uploader
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="file_uploader")
 if uploaded_file:
     st.info("Processing uploaded file...")
     # Build dataset
@@ -269,35 +268,40 @@ if uploaded_file:
         st.success("✅ Dataset processing complete.")
         # --- Data Cleaning ---
         df = pd.read_csv("delhi_environmental_data.csv")
+        # Debug columns
+        st.write("Columns in DataFrame:", df.columns.tolist())
         # Convert datetimeUtc to datetime
-        df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'])
+        df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'], errors='coerce')
         # Filter by time range
-        df = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
+        df_filtered = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
+        if df_filtered.empty:
+            st.warning("No data available for the selected time range. Showing all data.")
+            df_filtered = df.copy()
         # --- Fill missing pollutants ---
-        pollutant_cols = [c for c in POLLUTANTS if c in df.columns]
+        pollutant_cols = [c for c in POLLUTANTS if c in df_filtered.columns]
         for col in pollutant_cols:
-            df[col] = df[col].fillna(df[col].median())
+            df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
         # --- Fill missing weather ---
         weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
         for col in weather_cols:
-            if col in df.columns:
-                df[col] = df[col].fillna(df[col].mean())
+            if col in df_filtered.columns:
+                df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
         # --- Ensure OSM features exist ---
         for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
-            if col not in df.columns:
-                df[col] = 0
+            if col not in df_filtered.columns:
+                df_filtered[col] = 0
         # --- Create features ---
         if pollutant_cols:
-            df["aqi_proxy"] = df[pollutant_cols].mean(axis=1)
+            df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1)
         else:
-            df["aqi_proxy"] = np.nan
+            df_filtered["aqi_proxy"] = np.nan
             st.warning("⚠️ No pollutant columns found, aqi_proxy set to NaN")
-        if "pm25" in df.columns and "roads_count" in df.columns:
-            df["pollution_per_road"] = df["pm25"] / (df["roads_count"] + 1)
+        if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
+            df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
         else:
-            df["pollution_per_road"] = np.nan
+            df_filtered["pollution_per_road"] = np.nan
             st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
-        df["aqi_category"] = df["aqi_proxy"].apply(
+        df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
             lambda x: (
                 "Good" if pd.notna(x) and x <= 50 else
                 "Moderate" if pd.notna(x) and x <= 100 else
@@ -307,54 +311,55 @@ if uploaded_file:
         )
         # --- Assign pollution sources ---
         required_cols = ["pm25", "roads_count", "industries_count", "farms_count"]
-        if all(col in df.columns for col in required_cols):
-            df["pollution_source"] = df.apply(label_source, axis=1)
+        if all(col in df_filtered.columns for col in required_cols):
+            df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
         else:
             st.warning("⚠️ Required columns for labeling pollution_source are missing.")
-            df["pollution_source"] = "Unknown"
+            df_filtered["pollution_source"] = "Unknown"
         # --- Standardize numeric columns ---
         num_cols = ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count", "industries_count", "farms_count", "dumps_count", "aqi_proxy", "pollution_per_road"] + weather_cols
-        num_cols = [col for col in num_cols if col in df.columns]
+        num_cols = [col for col in num_cols if col in df_filtered.columns]
         scaler = StandardScaler()
-        df[num_cols] = scaler.fit_transform(df[num_cols])
+        df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
         # --- Encode categorical ---
         categorical_cols = ["city", "aqi_category"]
-        categorical_cols = [col for col in categorical_cols if col in df.columns]
+        categorical_cols = [col for col in categorical_cols if col in df_filtered.columns]
         if categorical_cols:
-            df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
+            df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
         # Save cleaned dataset
-        df.to_csv("cleaned_environmental_data.csv", index=False)
+        df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
         st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
         # --- Preview Section ---
-        st.write("Unique stations in dataset:", df['location_name'].nunique())
-        st.write("Stations:", df['location_name'].unique().tolist())
+        st.write("Unique stations in dataset:", df_filtered['location_name'].nunique())
+        st.write("Stations:", df_filtered['location_name'].unique().tolist())
         st.subheader("📊 AQ Dataset Preview (Sample from All Stations)")
-        if not df.empty:
-            preview_df = df.groupby('location_name').head(2).reset_index(drop=True)
+        if not df_filtered.empty:
+            preview_df = df_filtered.groupby('location_name').head(2).reset_index(drop=True)
             st.dataframe(preview_df)
-            st.write(f"Displaying up to 2 rows per station. Total stations: {df['location_name'].nunique()}")
+            st.write(f"Displaying up to 2 rows per station. Total stations: {df_filtered['location_name'].nunique()}")
         else:
             st.warning("No data available for preview.")
         # --- Alerts ---
         st.subheader("🚨 Real-Time Alerts")
         for pollutant, threshold in THRESHOLDS.items():
-            if pollutant in df.columns:
-                exceedances = df[df[pollutant] > threshold]
+            if pollutant in df_filtered.columns:
+                exceedances = df_filtered[df_filtered[pollutant] > threshold]
                 if not exceedances.empty:
                     st.error(f"Alert: {pollutant.upper()} exceeds threshold ({threshold}) at {len(exceedances)} records!")
                     st.dataframe(exceedances[['location_name', 'datetimeUtc', pollutant]])
-                    # Send email alerts for each exceedance
-                    for _, row in exceedances.iterrows():
+                    # Send one email per station per pollutant
+                    exceedances_grouped = exceedances.groupby(['location_name', pollutant]).first().reset_index()
+                    for _, row in exceedances_grouped.iterrows():
                         success = send_email_alert(pollutant, row[pollutant], row['location_name'], threshold)
                         if success:
                             st.success(f"Email alert sent for {pollutant.upper()} at {row['location_name']}")
         # --- Visual Components ---
         st.subheader("📈 Pollutant Trends Over Time")
         for pollutant in POLLUTANTS:
-            if pollutant in df.columns:
+            if pollutant in df_filtered.columns:
                 fig, ax = plt.subplots(figsize=(10, 4))
-                for station in df['location_name'].unique():
-                    station_data = df[df['location_name'] == station]
+                for station in df_filtered['location_name'].unique():
+                    station_data = df_filtered[df_filtered['location_name'] == station]
                     ax.plot(station_data['datetimeUtc'], station_data[pollutant], label=station)
                 ax.set_title(f"{pollutant.upper()} Trend")
                 ax.set_xlabel("Time")
@@ -365,18 +370,18 @@ if uploaded_file:
                 st.pyplot(fig)
         st.subheader("🥧 Pollution Source Distribution")
         fig, ax = plt.subplots(figsize=(6, 6))
-        source_counts = df['pollution_source'].value_counts()
+        source_counts = df_filtered['pollution_source'].value_counts()
         ax.pie(source_counts, labels=source_counts.index, autopct='%1.1f%%', colors=sns.color_palette("viridis"))
         ax.set_title("Predicted Pollution Source Distribution")
         st.pyplot(fig)
         # --- Model Training and Predictions ---
-        if st.button("Train Models and Predict Pollution Source"):
+        if st.button("Train Models and Predict Pollution Source", key="train_model_button"):
             st.info("Training models...")
-            X = df.drop(columns=["pollution_source", "location_name", "datetimeUtc"])
-            y = df["pollution_source"]
-            valid_idx = ~y.isna()
-            X = X[valid_idx]
-            y = y[valid_idx]
+            # Filter out rows where pollution_source is NaN and reset indices
+            df_model = df_filtered.dropna(subset=["pollution_source"]).reset_index(drop=True)
+            st.write(f"Model DataFrame shape after NaN removal: {df_model.shape}")
+            X = df_model.drop(columns=["pollution_source", "location_name", "datetimeUtc"])
+            y = df_model["pollution_source"]
             st.write(f"X shape: {X.shape}, y shape: {y.shape}")
             X = X.select_dtypes(include=[np.number])
             numeric_columns = X.columns.tolist()
@@ -385,7 +390,9 @@ if uploaded_file:
             scaler = StandardScaler()
             X = scaler.fit_transform(X)
             models = {
-                "Logistic Regression": LogisticRegression(max_iter=1000, C=0.1, random_state=42)
+                "Logistic Regression": LogisticRegression(max_iter=1000, C=0.1, random_state=42),
+                "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
+                "MLP Classifier": MLPClassifier(hidden_layer_sizes=(100,), max_iter=1000, random_state=42)
             }
             if X.shape[0] < 50:
                 for name, model in models.items():
@@ -397,6 +404,10 @@ if uploaded_file:
                     st.write(f"F1: {scores['test_f1_weighted'].mean():.2f} ± {scores['test_f1_weighted'].std():.2f}")
             else:
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                # Store original indices for joining
+                test_indices = y_test.index
+                st.write(f"Test indices: {test_indices.tolist()}")
+                st.write(f"Model DataFrame shape: {df_model.shape}")
                 if len(y_train.value_counts()) > 1 and min(y_train.value_counts()) > 1:
                     smote = SMOTE(random_state=42)
                     X_train, y_train = smote.fit_resample(X_train, y_train)
@@ -418,6 +429,10 @@ if uploaded_file:
                     f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
                     performance[name] = {"Accuracy": acc, "Precision": prec, "Recall": rec, "F1": f1}
                     st.write(f"Test results for {name}:")
+                    st.write(f"Accuracy: {acc:.2f}")
+                    st.write(f"Precision: {prec:.2f}")
+                    st.write(f"Recall: {rec:.2f}")
+                    st.write(f"F1: {f1:.2f}")
                     st.text(classification_report(y_test, y_pred, zero_division=0))
                     st.subheader(f"📋 Predictions for {name}")
                     pred_df = pd.DataFrame({
@@ -425,7 +440,8 @@ if uploaded_file:
                         'Predicted Source': y_pred,
                         'Confidence': [max(proba) for proba in y_proba]
                     })
-                    pred_df = pred_df.join(df[['location_name', 'datetimeUtc']].iloc[y_test.index])
+                    # Join with df_model using test_indices
+                    pred_df = pred_df.join(df_model[['location_name', 'datetimeUtc']].iloc[test_indices])
                     st.dataframe(pred_df)
                     cm = confusion_matrix(y_test, y_pred, labels=model.classes_)
                     fig, ax = plt.subplots(figsize=(6, 4))
@@ -434,45 +450,54 @@ if uploaded_file:
                     ax.set_xlabel("Predicted")
                     ax.set_ylabel("Actual")
                     st.pyplot(fig)
+                # Select and save best model based on F1 score
                 best_model_name = max(performance, key=lambda k: performance[k]["F1"])
                 best_model = models[best_model_name]
+                st.write(f"Best model: {best_model_name} with F1 score: {performance[best_model_name]['F1']:.2f}")
                 joblib.dump(best_model, "pollution_source_model.pkl")
-                st.success(f"💾 Best model saved as pollution_source_model.pkl")
+                st.success(f"💾 Best model ({best_model_name}) saved as pollution_source_model.pkl")
                 X_test_orig = pd.DataFrame(X_test, columns=numeric_columns)
                 X_test_orig["actual_source"] = y_test.reset_index(drop=True)
                 X_test_orig["predicted_source"] = y_pred
                 X_test_orig["confidence"] = [max(proba) for proba in y_proba]
                 X_test_orig.to_csv("final_predictions.csv", index=False)
                 st.success("💾 Final predictions saved as final_predictions.csv")
-        # --- Map Integration (Placeholder) ---
+        # --- Map Integration ---
         st.subheader("🗺️ Pollution Map")
-        if not df.empty:
-            st_folium(create_folium_map(df), width=700, height=500)
+        if not df_filtered.empty:
+            map_obj = create_folium_map(df_filtered)
+            if map_obj:
+                st_folium(map_obj, width=700, height=500, key="pollution_map")
+            else:
+                st.warning("Unable to render map due to missing data.")
         else:
             st.warning("No data for map visualization.")
         # --- Download Options ---
         st.subheader("📥 Download Reports")
-        if not df.empty:
-            latest_date = df['datetimeUtc'].dt.date.max()
-            daily_df = df[df['datetimeUtc'].dt.date == latest_date]
+        if not df_filtered.empty:
+            latest_date = df_filtered['datetimeUtc'].dt.date.max()
+            daily_df = df_filtered[df_filtered['datetimeUtc'].dt.date == latest_date]
             st.download_button(
                 label="Download Daily Report (CSV)",
                 data=daily_df.to_csv(index=False),
                 file_name=f"daily_report_{latest_date}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="daily_download"
             )
             week_ago = latest_date - timedelta(days=7)
-            weekly_df = df[df['datetimeUtc'].dt.date >= week_ago]
+            weekly_df = df_filtered[df_filtered['datetimeUtc'].dt.date >= week_ago]
             st.download_button(
                 label="Download Weekly Report (CSV)",
                 data=weekly_df.to_csv(index=False),
                 file_name=f"weekly_report_{latest_date}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="weekly_download"
             )
-            pdf_buffer = generate_pdf_report(df, "pollution_report", time_range)
+            pdf_buffer = generate_pdf_report(df_filtered, "pollution_report", time_range)
             st.download_button(
                 label="Download Summary Report (PDF)",
                 data=pdf_buffer,
                 file_name="pollution_report.pdf",
-                mime="application/pdf"
+                mime="application/pdf",
+                key="pdf_download"
             )
