@@ -32,7 +32,7 @@ OPENWEATHER_KEY = "f931ecc3a4864ae98a35630e7a9f5bc2"
 THRESHOLDS = {"pm25": 50, "pm10": 100, "no2": 80, "co": 10000, "so2": 75, "o3": 70}
 # Email configuration
 EMAIL_SENDER = "supriyochowdhury760@gmail.com"  # Replace with your email
-EMAIL_PASSWORD = "Candy@760"  # Replace with your email password
+EMAIL_PASSWORD = "ryrl xtng ocix nvbn"  # Replace with your email password
 EMAIL_RECEIVER = "danger49491358@gmail.com"  # Replace with recipient email
 SMTP_SERVER = "smtp.gmail.com"  # Example for Gmail
 SMTP_PORT = 587
