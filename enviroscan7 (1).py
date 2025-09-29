@@ -8,14 +8,14 @@ import requests
 from datetime import datetime, timezone, timedelta
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split  # Corrected import
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import cross_validate  # Corrected import
+from sklearn.model_selection import cross_validate
 from imblearn.over_sampling import SMOTE
-from sklearn.model_selection import KFold  # Corrected import
+from sklearn.model_selection import KFold
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -27,6 +27,7 @@ import io
 import smtplib
 from email.mime.text import MIMEText
 from folium.plugins import HeatMap
+
 # --- Constants ---
 POLLUTANTS = ["pm25", "pm10", "no2", "co", "so2", "o3"]
 OPENWEATHER_KEY = "f931ecc3a4864ae98a35630e7a9f5bc2"
@@ -212,104 +213,60 @@ def send_email_alert(pollutant, value, station, threshold):
         st.error(f"Failed to send email alert: {e}")
         return False
 
-    def create_folium_map(df, start_date=None, end_date=None, source_filter=None, location_filter=None, show_heatmap=True, heatmap_field='aqi_proxy'):
-        # Check if DataFrame is empty or missing required columns
-        required_cols = ['latitude', 'longitude', 'location_name', 'datetimeUtc', 'aqi_proxy', 'pollution_source']
-        if df.empty or not all(col in df.columns for col in required_cols):
-            st.warning("DataFrame is empty or missing required columns for map visualization.")
-            return None
-        
-        # Filter by date range if provided
-        df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'])
-        if start_date:
-            df = df[df['datetimeUtc'].dt.date >= start_date]
-        if end_date:
-            df = df[df['datetimeUtc'].dt.date <= end_date]
-        
-        # Filter by predicted pollution source
-        if source_filter and source_filter != "All":
-            df = df[df['pollution_source'] == source_filter]
-        
-        # Filter by geographic location
-        if location_filter:
-            df = df[(df['latitude'] >= location_filter.get('min_lat', -90)) &
-                    (df['latitude'] <= location_filter.get('max_lat', 90)) &
-                    (df['longitude'] >= location_filter.get('min_lon', -180)) &
-                    (df['longitude'] <= location_filter.get('max_lon', 180))]
-        
-        if df.empty:
-            st.warning("No data available after applying filters.")
-            return None
-        
-        # Group by location_name and calculate mean values
-        aggregated_df = df.groupby('location_name').agg({
-            'latitude': 'first',
-            'longitude': 'first',
-            'aqi_proxy': 'mean',
-            'pollution_source': 'first'
-        }).reset_index()
-        
-        # Calculate map center
-        center_lat = aggregated_df['latitude'].mean()
-        center_lon = aggregated_df['longitude'].mean()
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
-        
-        # Add heatmap if enabled
-        if show_heatmap and heatmap_field in aggregated_df.columns:
-            st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
-            # Convert to numeric and handle NaN for all relevant columns
-            aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
-            aggregated_df['latitude'] = pd.to_numeric(aggregated_df['latitude'], errors='coerce')
-            aggregated_df['longitude'] = pd.to_numeric(aggregated_df['longitude'], errors='coerce')
-            # Drop rows with NaN in heatmap_field, latitude, or longitude
-            aggregated_df = aggregated_df.dropna(subset=[heatmap_field, 'latitude', 'longitude'])
-            if aggregated_df.empty:
-                st.warning("No valid numeric data for heatmap after dropping NaN values.")
-                return m
-            
-            # Compute max and min, excluding NaN
-            valid_values = aggregated_df[heatmap_field].dropna()
-            if len(valid_values) == 0:
-                st.warning("No valid numeric values for heatmap normalization.")
-                return m
-            max_val = valid_values.max()
-            min_val = valid_values.min()
-            
-            # Handle edge cases
-            if pd.isna(max_val) or pd.isna(min_val) or max_val == min_val:
-                st.warning("Invalid range for normalization (all values same or NaN). Setting normalized values to 1.0.")
-                normalized_val = [1.0 for _ in range(len(aggregated_df))]
-            else:
-                normalized_val = ((aggregated_df[heatmap_field] - min_val) / (max_val - min_val)).fillna(1.0).tolist()
-            
-            heat_data = [[row.latitude, row.longitude, norm_val] 
-                         for row, norm_val in zip(aggregated_df.itertuples(), normalized_val) 
-                         if pd.notna(norm_val) and pd.notna(row.latitude) and pd.notna(row.longitude)]
-            if not heat_data:
-                st.warning("No valid data for heatmap. Check filters or data.")
-            else:
-                HeatMap(heat_data, radius=15, blur=10, gradient={0.0: 'blue', 0.5: 'lime', 1.0: 'red'}).add_to(m)
-        
-        # Add source-specific markers with color gradients based on pollution levels
-        for _, row in aggregated_df.iterrows():
-            if pd.isna(row['aqi_proxy']):
-                continue
-            source_color = {
-                'Industrial': 'blue',
-                'Traffic': 'red',
-                'Agricultural': 'green',
-                'Mixed/Other': 'gray'
-            }.get(row['pollution_source'], 'black')
-            
-            severity_color = 'green' if row['aqi_proxy'] <= 50 else 'yellow' if row['aqi_proxy'] <= 100 else 'orange' if row['aqi_proxy'] <= 200 else 'red'
-            
-            folium.Marker(
-                location=[row['latitude'], row['longitude']],
-                popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
-                icon=folium.Icon(color=severity_color, icon='cloud', prefix='fa')
-            ).add_to(m)
-        
-        return m
+def create_folium_map(df, start_date=None, end_date=None, source_filter=None, location_filter=None, show_heatmap=True, heatmap_field='aqi_proxy'):
+    # Check if DataFrame is empty or missing required columns
+    required_cols = ['latitude', 'longitude', 'location_name', 'datetimeUtc', 'aqi_proxy', 'pollution_source']
+    if df.empty or not all(col in df.columns for col in required_cols):
+        st.warning("DataFrame is empty or missing required columns for map visualization.")
+        return None
+    
+    # Filter by date range if provided
+    df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'])
+    if start_date:
+        df = df[df['datetimeUtc'].dt.date >= start_date]
+    if end_date:
+        df = df[df['datetimeUtc'].dt.date <= end_date]
+    
+    # Filter by predicted pollution source
+    if source_filter and source_filter != "All":
+        df = df[df['pollution_source'] == source_filter]
+    
+    # Filter by geographic location
+    if location_filter:
+        df = df[(df['latitude'] >= location_filter.get('min_lat', -90)) &
+                (df['latitude'] <= location_filter.get('max_lat', 90)) &
+                (df['longitude'] >= location_filter.get('min_lon', -180)) &
+                (df['longitude'] <= location_filter.get('max_lon', 180))]
+    
+    if df.empty:
+        st.warning("No data available after applying filters.")
+        return None
+    
+    # Group by location_name and calculate mean values
+    aggregated_df = df.groupby('location_name').agg({
+        'latitude': 'first',
+        'longitude': 'first',
+        'aqi_proxy': 'mean',
+        'pollution_source': 'first'
+    }).reset_index()
+    
+    # Calculate map center
+    center_lat = aggregated_df['latitude'].mean()
+    center_lon = aggregated_df['longitude'].mean()
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    
+    # Add heatmap if enabled
+    if show_heatmap and heatmap_field in aggregated_df.columns:
+        st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
+        # Convert to numeric and handle NaN for all relevant columns
+        aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
+        aggregated_df['latitude'] = pd.to_numeric(aggregated_df['latitude'], errors='coerce')
+        aggregated_df['longitude'] = pd.to_numeric(aggregated_df['longitude'], errors='coerce')
+        # Drop rows with NaN in heatmap_field, latitude, or longitude
+        aggregated_df = aggregated_df.dropna(subset=[heatmap_field, 'latitude', 'longitude'])
+        if aggregated_df.empty:
+            st.warning("No valid numeric data for heatmap after dropping NaN values.")
+            return m
         
         # Compute max and min, excluding NaN
         valid_values = aggregated_df[heatmap_field].dropna()
@@ -324,12 +281,11 @@ def send_email_alert(pollutant, value, station, threshold):
             st.warning("Invalid range for normalization (all values same or NaN). Setting normalized values to 1.0.")
             normalized_val = [1.0 for _ in range(len(aggregated_df))]
         else:
-            # Use a safer approach with vectorized operations
             normalized_val = ((aggregated_df[heatmap_field] - min_val) / (max_val - min_val)).fillna(1.0).tolist()
         
-        heat_data = [[row['latitude'], row['longitude'], norm_val] 
+        heat_data = [[row.latitude, row.longitude, norm_val] 
                      for row, norm_val in zip(aggregated_df.itertuples(), normalized_val) 
-                     if pd.notna(norm_val)]
+                     if pd.notna(norm_val) and pd.notna(row.latitude) and pd.notna(row.longitude)]
         if not heat_data:
             st.warning("No valid data for heatmap. Check filters or data.")
         else:
@@ -355,6 +311,7 @@ def send_email_alert(pollutant, value, station, threshold):
         ).add_to(m)
     
     return m
+
 # --- Streamlit App ---
 st.title("Enviroscan Environmental Data Dashboard")
 
@@ -503,12 +460,12 @@ if uploaded_file:
         
         # --- Option 2: Train Models ---
         elif analysis_option == "Train Models and Predict Pollution Source":
-            if st.button("Start Training", key="train_model_button"):
+            if st.button("Start Training", key="train_model_button_1"):
                 st.info("Training models...")
                 # 🔽 Your model training code goes here
 
         # --- Model Training and Predictions ---
-        if st.button("Train Models and Predict Pollution Source", key="train_model_button"):
+        if st.button("Train Models and Predict Pollution Source", key="train_model_button_2"):
             st.info("Training models...")
             df_model = df_filtered.dropna(subset=["pollution_source"]).reset_index(drop=True)
             st.write(f"Model DataFrame shape after NaN removal: {df_model.shape}")
