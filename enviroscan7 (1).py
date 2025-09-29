@@ -257,13 +257,59 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
     # Add heatmap if enabled
     if show_heatmap and heatmap_field in aggregated_df.columns:
         st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
-        # Convert to numeric and handle NaN
+        # Convert to numeric and handle NaN for all relevant columns
         aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
-        # Drop rows with NaN in heatmap_field to avoid issues
-        aggregated_df = aggregated_df.dropna(subset=[heatmap_field])
+        aggregated_df['latitude'] = pd.to_numeric(aggregated_df['latitude'], errors='coerce')
+        aggregated_df['longitude'] = pd.to_numeric(aggregated_df['longitude'], errors='coerce')
+        # Drop rows with NaN in heatmap_field, latitude, or longitude
+        aggregated_df = aggregated_df.dropna(subset=[heatmap_field, 'latitude', 'longitude'])
         if aggregated_df.empty:
             st.warning("No valid numeric data for heatmap after dropping NaN values.")
             return m
+        
+        # Compute max and min, excluding NaN
+        valid_values = aggregated_df[heatmap_field].dropna()
+        if len(valid_values) == 0:
+            st.warning("No valid numeric values for heatmap normalization.")
+            return m
+        max_val = valid_values.max()
+        min_val = valid_values.min()
+        
+        # Handle edge cases
+        if pd.isna(max_val) or pd.isna(min_val) or max_val == min_val:
+            st.warning("Invalid range for normalization (all values same or NaN). Setting normalized values to 1.0.")
+            normalized_val = [1.0 for _ in range(len(aggregated_df))]
+        else:
+            normalized_val = ((aggregated_df[heatmap_field] - min_val) / (max_val - min_val)).fillna(1.0).tolist()
+        
+        heat_data = [[row.latitude, row.longitude, norm_val] 
+                     for row, norm_val in zip(aggregated_df.itertuples(), normalized_val) 
+                     if pd.notna(norm_val) and pd.notna(row.latitude) and pd.notna(row.longitude)]
+        if not heat_data:
+            st.warning("No valid data for heatmap. Check filters or data.")
+        else:
+            HeatMap(heat_data, radius=15, blur=10, gradient={0.0: 'blue', 0.5: 'lime', 1.0: 'red'}).add_to(m)
+    
+    # Add source-specific markers with color gradients based on pollution levels
+    for _, row in aggregated_df.iterrows():
+        if pd.isna(row['aqi_proxy']):
+            continue
+        source_color = {
+            'Industrial': 'blue',
+            'Traffic': 'red',
+            'Agricultural': 'green',
+            'Mixed/Other': 'gray'
+        }.get(row['pollution_source'], 'black')
+        
+        severity_color = 'green' if row['aqi_proxy'] <= 50 else 'yellow' if row['aqi_proxy'] <= 100 else 'orange' if row['aqi_proxy'] <= 200 else 'red'
+        
+        folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
+            icon=folium.Icon(color=severity_color, icon='cloud', prefix='fa')
+        ).add_to(m)
+    
+    return m
         
         # Compute max and min, excluding NaN
         valid_values = aggregated_df[heatmap_field].dropna()
