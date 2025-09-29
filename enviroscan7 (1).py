@@ -245,6 +245,20 @@ if uploaded_file:
         # Save cleaned dataset
         df.to_csv("cleaned_environmental_data.csv", index=False)
         st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+
+        # --- Preview Section ---
+        # Debug station count
+        st.write("Unique stations in dataset:", df['location_name'].nunique())
+        st.write("Stations:", df['location_name'].unique().tolist())
+        # Preview: Sample of raw data from all stations
+        st.subheader("📊 AQ Dataset Preview (Sample from All Stations)")
+        if not df.empty:
+            preview_df = df.groupby('location_name').head(2).reset_index(drop=True)
+            st.dataframe(preview_df)
+            st.write(f"Displaying up to 2 rows per station. Total stations: {df['location_name'].nunique()}")
+        else:
+            st.warning("No data available for preview.")
+        
         # Display preview
         #st.subheader("Preview of Cleaned Dataset")
         #st.dataframe(df.head(10))
