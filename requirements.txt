@@ -4,7 +4,9 @@ numpy
 osmnx
 requests
 scikit-learn
-joblib
+imbalanced-learn
 matplotlib
 seaborn
-imblearn
+folium
+streamlit-folium
+reportlab
