@@ -257,10 +257,15 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
     # Add heatmap if enabled
     if show_heatmap and heatmap_field in aggregated_df.columns:
         st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
+        # Ensure heatmap_field values are numeric
+        aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
         max_val = aggregated_df[heatmap_field].max()
         min_val = aggregated_df[heatmap_field].min()
-        if max_val == min_val or pd.isna(max_val):
-            normalized_val = [1.0 for _ in aggregated_df[heatmap_field]]
+        
+        # Handle edge cases
+        if pd.isna(max_val) or pd.isna(min_val) or max_val == min_val:
+            st.warning("Invalid range for normalization (all values same or NaN). Setting normalized values to 1.0.")
+            normalized_val = [1.0 for _ in range(len(aggregated_df))]
         else:
             normalized_val = [(row[heatmap_field] - min_val) / (max_val - min_val) for row in aggregated_df.itertuples()]
         
@@ -292,7 +297,6 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
         ).add_to(m)
     
     return m
-
 # --- Streamlit App ---
 st.title("Enviroscan Environmental Data Dashboard")
 
