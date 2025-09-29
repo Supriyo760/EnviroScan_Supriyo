@@ -212,10 +212,22 @@ def send_email_alert(pollutant, value, station, threshold):
         return False
 
 def create_folium_map(df):
-    center_lat = df['latitude'].mean()
-    center_lon = df['longitude'].mean()
+    # Check if DataFrame is empty or missing required columns
+    required_cols = ['latitude', 'longitude', 'location_name']
+    if df.empty or not all(col in df.columns for col in required_cols):
+        st.warning("DataFrame is empty or missing required columns for map visualization.")
+        return None
+    
+    # Group by location_name and take first row, resetting index to keep location_name as column
+    unique_stations = df.groupby('location_name').first().reset_index()
+    
+    # Calculate map center
+    center_lat = unique_stations['latitude'].mean()
+    center_lon = unique_stations['longitude'].mean()
     m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
-    for _, row in df.groupby('location_name').first().iterrows():
+    
+    # Add markers for each station
+    for _, row in unique_stations.iterrows():
         folium.Marker(
             location=[row['latitude'], row['longitude']],
             popup=f"{row['location_name']}<br>PM2.5: {row.get('pm25', 'N/A')}<br>Source: {row.get('pollution_source', 'N/A')}",
