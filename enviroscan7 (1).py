@@ -487,6 +487,26 @@ if uploaded_file:
         ax.set_title("Predicted Pollution Source Distribution")
         st.pyplot(fig)
 
+        # --- User Choice ---
+        st.subheader("⚙️ Analysis Options")
+        analysis_option = st.radio(
+            "Select what you want to do:",
+            ("Generate Heatmaps Only", "Train Models and Predict Pollution Source")
+        )
+        
+        # --- Option 1: Only Heatmaps ---
+        if analysis_option == "Generate Heatmaps Only":
+            st.info("Generating heatmaps without training models...")
+            m = create_folium_map(df_filtered, start_date=start_date, end_date=end_date)
+            if m:
+                st_folium(m, width=800, height=500)
+        
+        # --- Option 2: Train Models ---
+        elif analysis_option == "Train Models and Predict Pollution Source":
+            if st.button("Start Training", key="train_model_button"):
+                st.info("Training models...")
+                # 🔽 Your model training code goes here
+
         # --- Model Training and Predictions ---
         if st.button("Train Models and Predict Pollution Source", key="train_model_button"):
             st.info("Training models...")
