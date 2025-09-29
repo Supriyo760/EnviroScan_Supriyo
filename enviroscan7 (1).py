@@ -213,6 +213,11 @@ def send_email_alert(pollutant, value, station, threshold):
         st.error(f"Failed to send email alert: {e}")
         return False
 
+# ... (previous imports and constants remain unchanged)
+
+# --- Helper Functions ---
+# ... (previous helper functions remain unchanged)
+
 def create_folium_map(df, start_date=None, end_date=None, source_filter=None, location_filter=None, show_heatmap=True, heatmap_field='aqi_proxy'):
     # Check if DataFrame is empty or missing required columns
     required_cols = ['latitude', 'longitude', 'location_name', 'datetimeUtc', 'aqi_proxy', 'pollution_source']
@@ -242,13 +247,19 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
         st.warning("No data available after applying filters.")
         return None
     
+    # Debug: Show stations before aggregation
+    st.write("Stations before aggregation:", df['location_name'].unique().tolist())
+    
     # Group by location_name and calculate mean values
     aggregated_df = df.groupby('location_name').agg({
-        'latitude': 'first',
-        'longitude': 'first',
+        'latitude': 'mean',  # Use mean to handle multiple coordinates if present
+        'longitude': 'mean',
         'aqi_proxy': 'mean',
         'pollution_source': 'first'
     }).reset_index()
+    
+    # Debug: Show aggregated stations
+    st.write("Aggregated stations:", aggregated_df['location_name'].tolist())
     
     # Calculate map center
     center_lat = aggregated_df['latitude'].mean()
@@ -258,17 +269,14 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
     # Add heatmap if enabled
     if show_heatmap and heatmap_field in aggregated_df.columns:
         st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
-        # Convert to numeric and handle NaN for all relevant columns
         aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
         aggregated_df['latitude'] = pd.to_numeric(aggregated_df['latitude'], errors='coerce')
         aggregated_df['longitude'] = pd.to_numeric(aggregated_df['longitude'], errors='coerce')
-        # Drop rows with NaN in heatmap_field, latitude, or longitude
         aggregated_df = aggregated_df.dropna(subset=[heatmap_field, 'latitude', 'longitude'])
         if aggregated_df.empty:
             st.warning("No valid numeric data for heatmap after dropping NaN values.")
             return m
         
-        # Compute max and min, excluding NaN
         valid_values = aggregated_df[heatmap_field].dropna()
         if len(valid_values) == 0:
             st.warning("No valid numeric values for heatmap normalization.")
@@ -276,7 +284,6 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
         max_val = valid_values.max()
         min_val = valid_values.min()
         
-        # Handle edge cases
         if pd.isna(max_val) or pd.isna(min_val) or max_val == min_val:
             st.warning("Invalid range for normalization (all values same or NaN). Setting normalized values to 1.0.")
             normalized_val = [1.0 for _ in range(len(aggregated_df))]
@@ -291,7 +298,7 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
         else:
             HeatMap(heat_data, radius=15, blur=10, gradient={0.0: 'blue', 0.5: 'lime', 1.0: 'red'}).add_to(m)
     
-    # Add source-specific markers with color gradients based on pollution levels
+    # Add source-specific markers
     for _, row in aggregated_df.iterrows():
         if pd.isna(row['aqi_proxy']):
             continue
@@ -396,6 +403,9 @@ if uploaded_file:
             df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
         df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
         st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+
+        # Debug: Show station distribution
+        st.write("Filtered stations count:", df_filtered.groupby('location_name').size())
 
         # --- Preview Section ---
         st.write("Unique stations in dataset:", df_filtered['location_name'].nunique())
@@ -511,13 +521,11 @@ if uploaded_file:
                     model.fit(X_train, y_train)
                     y_pred = model.predict(X_test)
                     
-                    # Probability prediction (if available)
                     if hasattr(model, "predict_proba"):
                         y_proba = model.predict_proba(X_test)
                     else:
                         y_proba = None
                     
-                    # Metrics
                     acc = accuracy_score(y_test, y_pred)
                     prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
                     rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
@@ -527,7 +535,6 @@ if uploaded_file:
                     st.write(f"Accuracy: {acc:.2f}, Precision: {prec:.2f}, Recall: {rec:.2f}, F1: {f1:.2f}")
                     st.text("Classification Report:\n" + classification_report(y_test, y_pred))
                     
-                    # Confusion Matrix Heatmap
                     cm = confusion_matrix(y_test, y_pred, labels=y.unique())
                     fig, ax = plt.subplots()
                     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=y.unique(), yticklabels=y.unique(), ax=ax)
@@ -536,15 +543,12 @@ if uploaded_file:
                     ax.set_title(f"Confusion Matrix - {name}")
                     st.pyplot(fig)
                     
-                    # Save model
                     model_filename = f"{name.replace(' ', '_').lower()}_model.pkl"
                     joblib.dump(model, model_filename)
                     st.success(f"Model saved as {model_filename}")
                     
-                    # Store performance
                     performance[name] = {"accuracy": acc, "precision": prec, "recall": rec, "f1": f1}
                 
-                # Compare models
                 st.subheader("📊 Model Performance Comparison")
                 perf_df = pd.DataFrame(performance).T
                 st.dataframe(perf_df)
