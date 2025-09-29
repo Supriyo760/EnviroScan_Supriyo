@@ -8,14 +8,14 @@ import requests
 from datetime import datetime, timezone, timedelta
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.model_model import train_test_split
+from sklearn.model_selection import train_test_split  # Corrected import
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import cross_validate
+from sklearn.model_selection import cross_validate  # Corrected import
 from imblearn.over_sampling import SMOTE
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold  # Corrected import
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -27,7 +27,6 @@ import io
 import smtplib
 from email.mime.text import MIMEText
 from folium.plugins import HeatMap
-
 # --- Constants ---
 POLLUTANTS = ["pm25", "pm10", "no2", "co", "so2", "o3"]
 OPENWEATHER_KEY = "f931ecc3a4864ae98a35630e7a9f5bc2"
