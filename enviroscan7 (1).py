@@ -533,41 +533,48 @@ if uploaded_file:
                     st.write(f"Training {name}...")
                     model.fit(X_train, y_train)
                     y_pred = model.predict(X_test)
-                    y_proba = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
+                    
+                    # Probability prediction (if available)
+                    if hasattr(model, "predict_proba"):
+                        y_proba = model.predict_proba(X_test)
+                    else:
+                        y_proba = None
+                    
+                    # Metrics
                     acc = accuracy_score(y_test, y_pred)
                     prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
                     rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
                     f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
-                    performance[name] = {"Accuracy": acc, "Precision": prec, "Recall": rec, "F1": f1}
-                    st.write(f"Test results for {name}:")
-                    st.write(f"Accuracy: {acc:.2f}")
-                    st.write(f"Precision: {prec:.2f}")
-                    st.write(f"Recall: {rec:.2f}")
-                    st.write(f"F1: {f1:.2f}")
-                    st.text(classification_report(y_test, y_pred, zero_division=0))
-                    st.subheader(f"📋 Predictions for {name}")
-                    pred_df = pd.DataFrame({
-                        'Actual Source': y_test,
-                        'Predicted Source': y_pred
-                    })
-                    if y_proba is not None:
-                        pred_df['Confidence'] = [max(proba) for proba in y_proba]
-                    else:
-                        pred_df['Confidence'] = np.nan
-                    pred_df = pred_df.join(df_model[['location_name', 'datetimeUtc']].iloc[test_indices])
-                    st.dataframe(pred_df)
-                    cm = confusion_matrix(y_test, y_pred, labels=model.classes_)
-                    fig, ax = plt.subplots(figsize=(6, 4))
-                    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=model.classes_, yticklabels=model.classes_)
-                    ax.set_title(f"Confusion Matrix - {name}")
+                    
+                    st.write(f"✅ {name} Results:")
+                    st.write(f"Accuracy: {acc:.2f}, Precision: {prec:.2f}, Recall: {rec:.2f}, F1: {f1:.2f}")
+                    st.text("Classification Report:\n" + classification_report(y_test, y_pred))
+                    
+                    # Confusion Matrix Heatmap
+                    cm = confusion_matrix(y_test, y_pred, labels=y.unique())
+                    fig, ax = plt.subplots()
+                    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=y.unique(), yticklabels=y.unique(), ax=ax)
                     ax.set_xlabel("Predicted")
                     ax.set_ylabel("Actual")
+                    ax.set_title(f"Confusion Matrix - {name}")
                     st.pyplot(fig)
-                best_model_name = max(performance, key=lambda k: performance[k]["F1"])
-                best_model = models[best_model_name]
-                st.write(f"Best model: {best_model_name} with F1 score: {performance[best_model_name]['F1']:.2f}")
-                joblib.dump(best_model, "pollution_source_model.pkl")
-                st.success(f"💾 Best model ({best_model_name}) saved as pollution_source_model.pkl")
+                    
+                    # Save model
+                    model_filename = f"{name.replace(' ', '_').lower()}_model.pkl"
+                    joblib.dump(model, model_filename)
+                    st.success(f"Model saved as {model_filename}")
+                    
+                    # Store performance
+                    performance[name] = {"accuracy": acc, "precision": prec, "recall": rec, "f1": f1}
+                
+                # Compare models
+                st.subheader("📊 Model Performance Comparison")
+                perf_df = pd.DataFrame(performance).T
+                st.dataframe(perf_df)
+                
+                best_model_name = perf_df['f1'].idxmax()
+                st.success(f"🏆 Best model based on F1-score: {best_model_name}")
+
                 X_test_orig = pd.DataFrame(X_test, columns=numeric_columns)
                 X_test_orig["actual_source"] = y_test.reset_index(drop=True)
                 X_test_orig["predicted_source"] = y_pred
