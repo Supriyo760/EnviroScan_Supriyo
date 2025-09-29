@@ -41,14 +41,12 @@ EMAIL_CONFIG = {
 
 # --- Helper Functions ---
 def get_weather(lat, lon, api_key):
-    """Fetch weather data from OpenWeatherMap API."""
     url = "http://api.openweathermap.org/data/2.5/weather"
     params = {"lat": lat, "lon": lon, "appid": api_key, "units": "metric"}
     response = requests.get(url, params=params)
     return response.json() if response.status_code == 200 else {}
 
 def extract_osm_features(lat, lon, radius=2000):
-    """Extract OSM features (roads, industries, farms, dumps) around a point."""
     features = {"roads_count": 0, "industries_count": 0, "farms_count": 0, "dumps_count": 0}
     point = (lat, lon)
     try:
@@ -74,7 +72,6 @@ def extract_osm_features(lat, lon, radius=2000):
     return features
 
 def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
-    """Build dataset from AQ CSV, OSM features, and weather data."""
     try:
         df_aq = pd.read_csv(aq_csv_file, skiprows=2, on_bad_lines="skip", engine="python")
         df_aq = df_aq.loc[:, ~df_aq.columns.str.contains("^Unnamed")]
@@ -130,7 +127,6 @@ def build_dataset(city, lat, lon, aq_csv_file, openweather_key):
     return df_wide, meta
 
 def save_datasets(df, filename):
-    """Save dataset to CSV and JSON files."""
     if df is None or (isinstance(df, pd.DataFrame) and df.empty):
         st.warning(f"{filename} is empty. Skipping save.")
         return
@@ -141,7 +137,6 @@ def save_datasets(df, filename):
     st.success(f"Saved {filename}.csv and {filename}.json")
 
 def consolidate_dataset(df_aq, df_meta, filename):
-    """Consolidate AQ data with metadata."""
     if df_aq is None or df_aq.empty:
         st.warning("AQ dataset empty, skipping consolidation.")
         return
@@ -151,7 +146,6 @@ def consolidate_dataset(df_aq, df_meta, filename):
     st.success(f"Consolidated dataset saved as {filename}.csv")
 
 def label_source(row):
-    """Label pollution source based on PM2.5, roads, industries, and farms."""
     pm25 = row.get("pm25", 0)
     roads = row.get("roads_count", 0)
     industries = row.get("industries_count", 0)
@@ -165,7 +159,6 @@ def label_source(row):
     return "Mixed/Other"
 
 def generate_pdf_report(df, filename, time_range):
-    """Generate a PDF report of pollution data."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     c.setFont("Helvetica", 12)
@@ -185,7 +178,6 @@ def generate_pdf_report(df, filename, time_range):
     return buffer
 
 def send_email_alert(pollutant, value, station, threshold):
-    """Send email alert for exceeding pollution thresholds."""
     msg = MIMEText(f"Alert: {pollutant.upper()} level ({value:.2f}) exceeds threshold ({threshold}) at {station} on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}.")
     msg['Subject'] = f"Enviroscan Pollution Alert: {pollutant.upper()}"
     msg['From'] = EMAIL_CONFIG["sender"]
@@ -202,7 +194,6 @@ def send_email_alert(pollutant, value, station, threshold):
         return False
 
 def create_folium_map(df, start_date=None, end_date=None, source_filter=None, location_filter=None, show_heatmap=True, heatmap_field='aqi_proxy'):
-    """Create a Folium map with heatmap and markers."""
     required_cols = ['latitude', 'longitude', 'location_name', 'datetimeUtc', 'aqi_proxy', 'pollution_source']
     if df.empty or not all(col in df.columns for col in required_cols):
         st.warning("DataFrame is empty or missing required columns for map visualization.")
@@ -225,28 +216,24 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
         st.warning("No data available after applying filters.")
         return None
 
-    st.write("Stations before aggregation:", df['location_name'].unique().tolist())
     aggregated_df = df.groupby('location_name').agg({
         'latitude': 'mean', 'longitude': 'mean', 'aqi_proxy': 'mean', 'pollution_source': 'first'
     }).reset_index()
-    st.write("Aggregated stations:", aggregated_df['location_name'].tolist())
 
     center_lat = aggregated_df['latitude'].mean()
     center_lon = aggregated_df['longitude'].mean()
     m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
 
     if show_heatmap and heatmap_field in aggregated_df.columns:
-        st.write(f"Generating heatmap for {heatmap_field} with {len(aggregated_df)} points")
         aggregated_df[heatmap_field] = pd.to_numeric(aggregated_df[heatmap_field], errors='coerce')
         aggregated_df[['latitude', 'longitude']] = aggregated_df[['latitude', 'longitude']].apply(pd.to_numeric, errors='coerce')
         aggregated_df = aggregated_df.dropna(subset=[heatmap_field, 'latitude', 'longitude'])
         if aggregated_df.empty:
-            st.warning("No valid numeric data for heatmap after dropping NaN values.")
+            st.warning("No valid numeric data for heatmap.")
             return m
 
         valid_values = aggregated_df[heatmap_field].dropna()
         if len(valid_values) == 0 or valid_values.max() == valid_values.min():
-            st.warning("Invalid range for heatmap normalization.")
             normalized_val = [1.0] * len(aggregated_df)
         else:
             normalized_val = ((aggregated_df[heatmap_field] - valid_values.min()) / (valid_values.max() - valid_values.min())).fillna(1.0).tolist()
@@ -255,8 +242,6 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
                      if pd.notna(norm_val) and pd.notna(row.latitude) and pd.notna(row.longitude)]
         if heat_data:
             HeatMap(heat_data, radius=15, blur=10, gradient={0.0: 'blue', 0.5: 'lime', 1.0: 'red'}).add_to(m)
-        else:
-            st.warning("No valid data for heatmap.")
 
     for _, row in aggregated_df.iterrows():
         if pd.isna(row['aqi_proxy']):
@@ -273,7 +258,13 @@ def create_folium_map(df, start_date=None, end_date=None, source_filter=None, lo
 # --- Streamlit App ---
 st.title("Enviroscan Environmental Data Dashboard")
 
-# --- Input Section ---
+# --- Session State Initialization ---
+if "df_filtered" not in st.session_state:
+    st.session_state.df_filtered = None
+if "processed" not in st.session_state:
+    st.session_state.processed = False
+
+# --- Sidebar for Inputs ---
 with st.sidebar:
     st.subheader("📍 Input Parameters")
     col1, col2, col3 = st.columns(3)
@@ -294,8 +285,15 @@ with st.sidebar:
 
     uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="file_uploader")
 
+    if st.button("Process Data", key="process_button"):
+        if uploaded_file:
+            st.session_state.processed = True
+            st.session_state.df_filtered = None  # Reset to force recalculation
+        else:
+            st.warning("Please upload a CSV file.")
+
 # --- Main Content ---
-if uploaded_file:
+if st.session_state.processed and uploaded_file:
     st.info("Processing uploaded file...")
     df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
     if not df_aq.empty:
@@ -306,57 +304,60 @@ if uploaded_file:
         consolidate_dataset(df_aq, meta, "delhi_environmental_data")
         st.success("✅ Dataset processing complete.")
 
-        # --- Data Cleaning ---
-        df = pd.read_csv("delhi_environmental_data.csv")
-        st.write("Columns in DataFrame:", df.columns.tolist())
-        df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'], errors='coerce')
-        df_filtered = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
-        if df_filtered.empty:
-            st.warning("No data available for the selected time range. Showing all data.")
-            df_filtered = df.copy()
+        # --- Data Cleaning (Cached in session_state) ---
+        if st.session_state.df_filtered is None:
+            df = pd.read_csv("delhi_environmental_data.csv")
+            st.write("Columns in DataFrame:", df.columns.tolist())
+            df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'], errors='coerce')
+            df_filtered = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
+            if df_filtered.empty:
+                st.warning("No data available for the selected time range. Showing all data.")
+                df_filtered = df.copy()
 
-        pollutant_cols = [col for col in POLLUTANTS if col in df_filtered.columns]
-        for col in pollutant_cols:
-            df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
-        weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
-        for col in weather_cols:
-            if col in df_filtered.columns:
-                df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
-        for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
-            df_filtered[col] = df_filtered.get(col, 0)
+            pollutant_cols = [col for col in POLLUTANTS if col in df_filtered.columns]
+            for col in pollutant_cols:
+                df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
+            weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
+            for col in weather_cols:
+                if col in df_filtered.columns:
+                    df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
+            for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
+                df_filtered[col] = df_filtered.get(col, 0)
 
-        if pollutant_cols:
-            df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
-        else:
-            df_filtered["aqi_proxy"] = 0
-            st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
-        if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
-            df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
-        else:
-            df_filtered["pollution_per_road"] = np.nan
-            st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
+            if pollutant_cols:
+                df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
+            else:
+                df_filtered["aqi_proxy"] = 0
+                st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
+            if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
+                df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
+            else:
+                df_filtered["pollution_per_road"] = np.nan
+                st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
 
-        df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
-            lambda x: "Good" if pd.notna(x) and x <= 50 else
-                      "Moderate" if pd.notna(x) and x <= 100 else
-                      "Unhealthy" if pd.notna(x) and x <= 200 else "Hazardous")
-        if all(col in df_filtered.columns for col in ["pm25", "roads_count", "industries_count", "farms_count"]):
-            df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
-        else:
-            st.warning("⚠️ Required columns for labeling pollution_source are missing.")
-            df_filtered["pollution_source"] = "Unknown"
+            df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
+                lambda x: "Good" if pd.notna(x) and x <= 50 else
+                          "Moderate" if pd.notna(x) and x <= 100 else
+                          "Unhealthy" if pd.notna(x) and x <= 200 else "Hazardous")
+            if all(col in df_filtered.columns for col in ["pm25", "roads_count", "industries_count", "farms_count"]):
+                df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
+            else:
+                st.warning("⚠️ Required columns for labeling pollution_source are missing.")
+                df_filtered["pollution_source"] = "Unknown"
 
-        num_cols = [col for col in ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count",
-                                    "industries_count", "farms_count", "dumps_count", "aqi_proxy",
-                                    "pollution_per_road"] + weather_cols if col in df_filtered.columns]
-        scaler = StandardScaler()
-        df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
-        categorical_cols = [col for col in ["city", "aqi_category"] if col in df_filtered.columns]
-        if categorical_cols:
-            df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
-        df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
-        st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+            num_cols = [col for col in ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count",
+                                        "industries_count", "farms_count", "dumps_count", "aqi_proxy",
+                                        "pollution_per_road"] + weather_cols if col in df_filtered.columns]
+            scaler = StandardScaler()
+            df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
+            categorical_cols = [col for col in ["city", "aqi_category"] if col in df_filtered.columns]
+            if categorical_cols:
+                df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
+            df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
+            st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+            st.session_state.df_filtered = df_filtered
 
+        df_filtered = st.session_state.df_filtered
         st.write("Filtered stations count:", df_filtered.groupby('location_name').size())
 
         # --- Preview Section ---
@@ -406,19 +407,34 @@ if uploaded_file:
 
         # --- Analysis Options ---
         st.subheader("⚙️ Analysis Options")
-        analysis_option = st.radio("Select Analysis:", ("Generate Heatmaps Only", "Train Models"))
+        analysis_option = st.radio("Select Analysis:", ("Generate Heatmaps Only", "Train Models"), key="analysis_option")
 
         if analysis_option == "Generate Heatmaps Only":
             st.info("Generating heatmaps...")
             with st.spinner("Rendering map..."):
-                m = create_folium_map(df_filtered, start_date, end_date)
-                if m:
-                    st_folium(m, width=800, height=500)
+                col6, col7, col8 = st.columns(3)
+                with col6:
+                    source_filter = st.selectbox("Pollution Source", ["All"] + ["Industrial", "Traffic", "Agricultural", "Mixed/Other"], key="source_filter")
+                with col7:
+                    show_heatmap = st.checkbox("Show Heatmap", value=True, key="show_heatmap")
+                    if show_heatmap:
+                        heatmap_fields = [col for col in ['aqi_proxy'] + POLLUTANTS if col in df_filtered.columns]
+                        heatmap_field = st.selectbox("Heatmap Field", heatmap_fields, key="heatmap_field")
+                with col8:
+                    min_lat = st.number_input("Min Latitude", value=28.0, format="%.4f", key="min_lat")
+                    max_lat = st.number_input("Max Latitude", value=29.0, format="%.4f", key="max_lat")
+                    min_lon = st.number_input("Min Longitude", value=76.0, format="%.4f", key="min_lon")
+                    max_lon = st.number_input("Max Longitude", value=78.0, format="%.4f", key="max_lon")
+                location_filter = {'min_lat': min_lat, 'max_lat': max_lat, 'min_lon': min_lon, 'max_lon': max_lon}
+
+                map_obj = create_folium_map(df_filtered, start_date, end_date, source_filter, location_filter, show_heatmap, heatmap_field)
+                if map_obj:
+                    st_folium(map_obj, width=700, height=500, key="pollution_map")
                 else:
-                    st.warning("Map rendering failed due to data issues.")
+                    st.warning("Unable to render map due to data issues.")
 
         elif analysis_option == "Train Models":
-            if st.button("Start Training", key="train_model_button_1"):
+            if st.button("Start Training", key="train_model_button"):
                 st.info("Training models...")
                 df_model = df_filtered.dropna(subset=["pollution_source"]).reset_index(drop=True)
                 X = df_model.drop(columns=["pollution_source", "location_name", "datetimeUtc"])
@@ -491,31 +507,6 @@ if uploaded_file:
                     X_test_orig["confidence"] = [max(proba) for proba in y_proba] if y_proba is not None else np.nan
                     X_test_orig.to_csv("final_predictions.csv", index=False)
                     st.success("💾 Final predictions saved as final_predictions.csv")
-
-        # --- Map Filters ---
-        st.subheader("🗺️ Map Filters")
-        col6, col7, col8 = st.columns(3)
-        with col6:
-            source_filter = st.selectbox("Pollution Source", ["All"] + ["Industrial", "Traffic", "Agricultural", "Mixed/Other"], key="source_filter")
-        with col7:
-            show_heatmap = st.checkbox("Show Heatmap", value=True, key="show_heatmap")
-            if show_heatmap:
-                heatmap_fields = [col for col in ['aqi_proxy'] + POLLUTANTS if col in df_filtered.columns]
-                heatmap_field = st.selectbox("Heatmap Field", heatmap_fields, key="heatmap_field")
-        with col8:
-            min_lat = st.number_input("Min Latitude", value=28.0, format="%.4f", key="min_lat")
-            max_lat = st.number_input("Max Latitude", value=29.0, format="%.4f", key="max_lat")
-            min_lon = st.number_input("Min Longitude", value=76.0, format="%.4f", key="min_lon")
-            max_lon = st.number_input("Max Longitude", value=78.0, format="%.4f", key="max_lon")
-        location_filter = {'min_lat': min_lat, 'max_lat': max_lat, 'min_lon': min_lon, 'max_lon': max_lon}
-
-        st.subheader("🗺️ Pollution Map")
-        with st.spinner("Rendering map..."):
-            map_obj = create_folium_map(df_filtered, start_date, end_date, source_filter, location_filter, show_heatmap, heatmap_field)
-            if map_obj:
-                st_folium(map_obj, width=700, height=500, key="pollution_map")
-            else:
-                st.warning("Unable to render map due to data issues.")
 
         # --- Download Options ---
         st.subheader("📥 Download Reports")
