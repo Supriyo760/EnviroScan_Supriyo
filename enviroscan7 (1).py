@@ -377,6 +377,8 @@ time_range = f"{start_date} to {end_date}"
 
 # File Uploader
 uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="file_uploader")
+df_filtered = None  # Initialize df_filtered as None
+
 if uploaded_file:
     st.info("Processing uploaded file...")
     # Build dataset
@@ -577,7 +579,7 @@ if uploaded_file:
                 st.success("💾 Final predictions saved as final_predictions.csv")
 
         # --- Map Filters and Integration ---
-        if not df_filtered.empty:
+        if df_filtered is not None and not df_filtered.empty:
             st.subheader("🗺️ Map Filters")
             col6, col7, col8 = st.columns(3)
             with col6:
@@ -604,7 +606,7 @@ if uploaded_file:
             st.warning("No data for map visualization or filters.")
 
         # --- Download Options ---
-        if not df_filtered.empty:
+        if df_filtered is not None and not df_filtered.empty:
             st.subheader("📥 Download Reports")
             latest_date = df_filtered['datetimeUtc'].dt.date.max()
             daily_df = df_filtered[df_filtered['datetimeUtc'].dt.date == latest_date]
