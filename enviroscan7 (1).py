@@ -393,12 +393,16 @@ if uploaded_file:
         for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
             if col not in df_filtered.columns:
                 df_filtered[col] = 0
-        # --- Create features ---
-        if pollutant_cols:
-            df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1)
-        else:
-            df_filtered["aqi_proxy"] = np.nan
-            st.warning("⚠️ No pollutant columns found, aqi_proxy set to NaN")
+        # In the main app, after data cleaning
+if pollutant_cols:
+    df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
+else:
+    df_filtered["aqi_proxy"] = 0  # Default to 0 if no pollutants
+    st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
+for col in POLLUTANTS:
+    if col not in df_filtered.columns:
+        df_filtered[col] = 0
+    df_filtered[col] = df_filtered[col].fillna(0)  # Force fill NaN with 0
         if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
             df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
         else:
