@@ -804,9 +804,9 @@ with left_col:
                         file_name="pollution_report.pdf",
                         mime="application/pdf",
                     )
-                    else:
-                        st.warning("Please upload a CSV file and click 'Process Data' to start.")
-                        st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.warning("Please upload a CSV file and click 'Process Data' to start.")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
 with right_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
