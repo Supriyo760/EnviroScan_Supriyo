@@ -582,11 +582,11 @@ with left_col:
                         st.session_state.df_filtered = df_filtered
                 else:
                     st.warning("No data processed from the uploaded file.")
-        except Exception as e:
-            st.error(f"Error processing dataset: {str(e)}")
-            st.write("Debug: Exception occurred, check logs for details.")
-        else:
-            st.warning("Please upload a CSV file and click 'Process Data' to start.")
+            except Exception as e:
+                st.error(f"Error processing dataset: {str(e)}")
+                st.write("Debug: Exception occurred, check logs for details.")
+            else:
+                st.warning("Please upload a CSV file and click 'Process Data' to start.")
 
             # Ensure df_filtered is available before proceeding
             if "df_filtered" in st.session_state and st.session_state.df_filtered is not None:
@@ -804,9 +804,9 @@ with left_col:
                         file_name="pollution_report.pdf",
                         mime="application/pdf",
                     )
-else:
-    st.warning("Please upload a CSV file and click 'Process Data' to start.")
-    st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.warning("Please upload a CSV file and click 'Process Data' to start.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
 with right_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
