@@ -483,11 +483,11 @@ if st.session_state.processed and uploaded_file:
                 else:
                     st.warning(f"⚠️ {pollutant.upper()} data not available in the dataset.")
       
-          if not alert_found:
-              st.warning("No alerts triggered. Check if pollutant levels exceed thresholds or if data is available.")
-              st.write("**Sample Data Preview for Debugging**:")
-              sample_data = df_filtered[POLLUTANTS + ['location_name', 'datetimeUtc']].head(5)
-              st.dataframe(sample_data.style.format({p: "{:.2f}" for p in POLLUTANTS}))
+            if not alert_found:
+                st.warning("No alerts triggered. Check if pollutant levels exceed thresholds or if data is available.")
+                st.write("**Sample Data Preview for Debugging**:")
+                sample_data = df_filtered[POLLUTANTS + ['location_name', 'datetimeUtc']].head(5)
+                st.dataframe(sample_data.style.format({p: "{:.2f}" for p in POLLUTANTS}))
         # --- Visual Components ---
         with st.expander("📊 Visualizations", expanded=True):
             st.subheader("Pollutant Trends")
