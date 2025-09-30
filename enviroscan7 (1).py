@@ -410,30 +410,59 @@ def create_folium_map(
             if row["aqi_proxy"] <= 200
             else "red"
         )
-        if row["location_name"] == "Pusa Delhi":
-            popup_html = f"""
-            <div style="width: 200px;">
-                <h4>{row['location_name']}</h4>
-                <p>AQI Proxy: {row['aqi_proxy']:.2f}</p>
-                <p>Source: {row['pollution_source']}</p>
-                <button onclick="window.parent.postMessage({{type: 'showInsight', source: '{row['pollution_source']}'}}, '*')">Show Insights</button>
-            </div>
-            """
-            iframe = folium.IFrame(popup_html, width=200, height=100)
-            popup = folium.Popup(iframe, max_width=200)
-            folium.Marker(
-                location=[row["latitude"], row["longitude"]],
-                popup=popup,
-                icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
-            ).add_to(m)
-        else:
-            folium.Marker(
-                location=[row["latitude"], row["longitude"]],
-                popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
-                icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
-            ).add_to(m)
+        popup_content = f"""
+        <div style="width: 200px; font-family: Arial, sans-serif;">
+            <h4>{row['location_name']}</h4>
+            <p><strong>AQI Proxy:</strong> {row['aqi_proxy']:.2f}</p>
+            <p><strong>Source:</strong> {row['pollution_source']}</p>
+            {'<hr>' if row['pollution_source'] else ''}
+            {get_pollution_insight_html(row['pollution_source']) if row['pollution_source'] else '<p>No insights available.</p>'}
+        </div>
+        """
+        iframe = folium.IFrame(popup_content, width=200, height=200)
+        popup = folium.Popup(iframe, max_width=200)
+        folium.Marker(
+            location=[row["latitude"], row["longitude"]],
+            popup=popup,
+            icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
+        ).add_to(m)
 
     return m
+
+def get_pollution_insight_html(source):
+    if source == "Industrial":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> Chemical pollutants (e.g., SO2, heavy metals) and PM2.5/PM10.</p>
+            <p><strong>Health Risks:</strong> Asthma, heart disease, cancer risk.</p>
+            <p><strong>Mitigation:</strong> Advanced filters, emission controls.</p>
+        </div>
+        """
+    elif source == "Traffic":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> NOx, CO, particulate matter.</p>
+            <p><strong>Health Risks:</strong> Asthma, cardiovascular issues.</p>
+            <p><strong>Mitigation:</strong> Electric vehicles, carpooling.</p>
+        </div>
+        """
+    elif source == "Agricultural":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> Pesticides, ammonia, methane.</p>
+            <p><strong>Health Risks:</strong> Respiratory infections, waterborne illness.</p>
+            <p><strong>Mitigation:</strong> Organic farming, waste management.</p>
+        </div>
+        """
+    elif source == "Mixed/Other":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> Mixed chemical and biological pollutants.</p>
+            <p><strong>Health Risks:</strong> Multi-organ damage, fatigue.</p>
+            <p><strong>Mitigation:</strong> Integrated pollution control.</p>
+        </div>
+        """
+    return ""
 
 def main():
     # --- Streamlit App ---
@@ -805,89 +834,86 @@ def main():
                 )
 
     with right_col:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🌍 Pollution Insights")
-        if st.session_state.selected_source:
-            if st.session_state.selected_source == "Industrial":
-                st.markdown(
-                    '<div class="insight-box">',
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    """
-                    <h4>Industrial Pollution Insights</h4>
-                    <p><strong>Type of Pollutant:</strong> Chemical pollutants (e.g., sulfur dioxide, heavy metals) and fine particulate matter (PM2.5, PM10).</p>
-                    <p><strong>Medium:</strong> Mainly airborne, with potential water and soil contamination from industrial runoff.</p>
-                    <p><strong>Health Risks:</strong> Chronic respiratory conditions (e.g., asthma, bronchitis), heart disease, increased cancer risk, and skin disorders.</p>
-                    <p><strong>Mitigation Strategies:</strong> Deploy advanced filtration systems, enforce stringent emission controls, use personal protective equipment, establish green buffers, and conduct regular health screenings.</p>
-                    <p><strong>Environmental Effects:</strong> Acid rain, habitat destruction, and significant biodiversity decline.</p>
-                    <p><strong>Global Case Study:</strong> The 1952 Great Smog of London led to the Clean Air Act, drastically reducing industrial emissions.</p>
-                    <p><strong>Prevention Advice:</strong> Minimize exposure during industrial peak times, advocate for eco-friendly industrial practices.</p>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-            elif st.session_state.selected_source == "Traffic":
-                st.markdown(
-                    '<div class="insight-box">',
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    """
-                    <h4>Traffic Pollution Insights</h4>
-                    <p><strong>Type of Pollutant:</strong> Gaseous emissions (e.g., nitrogen oxides, carbon monoxide) and particulate matter.</p>
-                    <p><strong>Medium:</strong> Predominantly air, with minor soil impact from exhaust residues.</p>
-                    <p><strong>Health Risks:</strong> Asthma exacerbation, allergic reactions, reduced lung capacity, cardiovascular issues, and developmental delays in children.</p>
-                    <p><strong>Mitigation Strategies:</strong> Encourage electric vehicle adoption, enhance public transit systems, promote carpooling, use indoor air purifiers, and avoid congested areas.</p>
-                    <p><strong>Environmental Effects:</strong> Smog development, ozone layer thinning, and contributions to climate change.</p>
-                    <p><strong>Global Case Study:</strong> Los Angeles implemented strict vehicle emission regulations to combat traffic pollution.</p>
-                    <p><strong>Prevention Advice:</strong> Monitor daily air quality indices, limit outdoor activities during peak traffic pollution.</p>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-            elif st.session_state.selected_source == "Agricultural":
-                st.markdown(
-                    '<div class="insight-box">',
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    """
-                    <h4>Agricultural Pollution Insights</h4>
-                    <p><strong>Type of Pollutant:</strong> Chemical agents (e.g., pesticides, ammonia) and biological emissions (e.g., methane from livestock).</p>
-                    <p><strong>Medium:</strong> Air, water (via runoff), and soil.</p>
-                    <p><strong>Health Risks:</strong> Respiratory infections, neurological damage, waterborne illnesses, and dermatological conditions.</p>
-                    <p><strong>Mitigation Strategies:</strong> Adopt organic farming techniques, manage animal waste effectively, install water purification systems, and use protective clothing.</p>
-                    <p><strong>Environmental Effects:</strong> Eutrophication in aquatic systems, soil erosion, and pollinator population decline.</p>
-                    <p><strong>Global Case Study:</strong> The Netherlands employs precision agriculture to reduce agricultural runoff.</p>
-                    <p><strong>Prevention Advice:</strong> Prefer organic local produce, avoid using contaminated water sources.</p>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-            elif st.session_state.selected_source == "Mixed/Other":
-                st.markdown(
-                    '<div class="insight-box">',
-                    unsafe_allow_html=True,
-                )
-                st.markdown(
-                    """
-                    <h4>Mixed Pollution Insights</h4>
-                    <p><strong>Type of Pollutant:</strong> Combination of chemical, gaseous, and biological pollutants based on multiple sources.</p>
-                    <p><strong>Medium:</strong> Air, water, and soil, varying by source mix.</p>
-                    <p><strong>Health Risks:</strong> Chronic fatigue, weakened immunity, multi-organ damage, and elevated cancer risk.</p>
-                    <p><strong>Mitigation Strategies:</strong> Regular environmental assessments, integrated pollution control (e.g., filters, waste management), community education, and protective gear usage.</p>
-                    <p><strong>Environmental Effects:</strong> Erratic ecosystem changes and cumulative pollution impacts.</p>
-                    <p><strong>Global Case Study:</strong> Beijing addressed mixed pollution through comprehensive multi-source regulations.</p>
-                    <p><strong>Prevention Advice:</strong> Track local pollution levels, participate in community cleanup initiatives.</p>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="insight-box"><p>Click a marker (e.g., Pusa Delhi) to view pollution insights.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("🌍 Pollution Insights")
+    if st.session_state.selected_source:
+        if st.session_state.selected_source == "Industrial":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                """
+                <h4>Industrial Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Chemical pollutants (e.g., sulfur dioxide, heavy metals) and fine particulate matter (PM2.5, PM10).</p>
+                <p><strong>Medium:</strong> Mainly airborne, with potential water and soil contamination from industrial runoff.</p>
+                <p><strong>Health Risks:</strong> Chronic respiratory conditions (e.g., asthma, bronchitis), heart disease, increased cancer risk, and skin disorders.</p>
+                <p><strong>Mitigation Strategies:</strong> Deploy advanced filtration systems, enforce stringent emission controls, use personal protective equipment, establish green buffers, and conduct regular health screenings.</p>
+                <p><strong>Environmental Effects:</strong> Acid rain, habitat destruction, and significant biodiversity decline.</p>
+                <p><strong>Global Case Study:</strong> The 1952 Great Smog of London led to the Clean Air Act, drastically reducing industrial emissions.</p>
+                <p><strong>Prevention Advice:</strong> Minimize exposure during industrial peak times, advocate for eco-friendly industrial practices.</p>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif st.session_state.selected_source == "Traffic":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                """
+                <h4>Traffic Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Gaseous emissions (e.g., nitrogen oxides, carbon monoxide) and particulate matter.</p>
+                <p><strong>Medium:</strong> Predominantly air, with minor soil impact from exhaust residues.</p>
+                <p><strong>Health Risks:</strong> Asthma exacerbation, allergic reactions, reduced lung capacity, cardiovascular issues, and developmental delays in children.</p>
+                <p><strong>Mitigation Strategies:</strong> Encourage electric vehicle adoption, enhance public transit systems, promote carpooling, use indoor air purifiers, and avoid congested areas.</p>
+                <p><strong>Environmental Effects:</strong> Smog development, ozone layer thinning, and contributions to climate change.</p>
+                <p><strong>Global Case Study:</strong> Los Angeles implemented strict vehicle emission regulations to combat traffic pollution.</p>
+                <p><strong>Prevention Advice:</strong> Monitor daily air quality indices, limit outdoor activities during peak traffic pollution.</p>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif st.session_state.selected_source == "Agricultural":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                """
+                <h4>Agricultural Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Chemical agents (e.g., pesticides, ammonia) and biological emissions (e.g., methane from livestock).</p>
+                <p><strong>Medium:</strong> Air, water (via runoff), and soil.</p>
+                <p><strong>Health Risks:</strong> Respiratory infections, neurological damage, waterborne illnesses, and dermatological conditions.</p>
+                <p><strong>Mitigation Strategies:</strong> Adopt organic farming techniques, manage animal waste effectively, install water purification systems, and use protective clothing.</p>
+                <p><strong>Environmental Effects:</strong> Eutrophication in aquatic systems, soil erosion, and pollinator population decline.</p>
+                <p><strong>Global Case Study:</strong> The Netherlands employs precision agriculture to reduce agricultural runoff.</p>
+                <p><strong>Prevention Advice:</strong> Prefer organic local produce, avoid using contaminated water sources.</p>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif st.session_state.selected_source == "Mixed/Other":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                """
+                <h4>Mixed Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Combination of chemical, gaseous, and biological pollutants based on multiple sources.</p>
+                <p><strong>Medium:</strong> Air, water, and soil, varying by source mix.</p>
+                <p><strong>Health Risks:</strong> Chronic fatigue, weakened immunity, multi-organ damage, and elevated cancer risk.</p>
+                <p><strong>Mitigation Strategies:</strong> Regular environmental assessments, integrated pollution control (e.g., filters, waste management), community education, and protective gear usage.</p>
+                <p><strong>Environmental Effects:</strong> Erratic ecosystem changes and cumulative pollution impacts.</p>
+                <p><strong>Global Case Study:</strong> Beijing addressed mixed pollution through comprehensive multi-source regulations.</p>
+                <p><strong>Prevention Advice:</strong> Track local pollution levels, participate in community cleanup initiatives.</p>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="insight-box"><p>Click a marker on the map to view pollution insights.</p></div>', unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+    st.markdown("</div>", unsafe_allow_html=True)
