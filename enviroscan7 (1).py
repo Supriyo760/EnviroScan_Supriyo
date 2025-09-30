@@ -161,24 +161,24 @@ with st.sidebar:
         else:
             st.warning("Please upload a CSV file.")
 
-# --- Main Dashboard Layout ---
-left_col, right_col = st.columns([2, 1])
-
-with left_col:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    if st.session_state.processed and uploaded_file is not None:
-        st.info("Processing uploaded file...")
-        try:
-            st.write("Debug: Starting build_dataset with city:", city, "lat:", lat, "lon:", lon)
-            df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
-            st.write("Debug: build_dataset completed, df_aq shape:", df_aq.shape if not df_aq.empty else "Empty")
-            if not df_aq.empty:
-                st.write(f"**Dataset Summary**: {meta['records']} records, {meta['unique_stations']} unique stations")
-                st.write("**Stations**:", df_aq['location_name'].unique().tolist())
-                save_datasets(df_aq, "delhi_aq_data")
-                save_datasets(meta, "delhi_meta_data")
-                consolidate_dataset(df_aq, meta, "delhi_environmental_data")
-                st.success("✅ Dataset processing complete.")
+  # --- Main Dashboard Layout ---
+  left_col, right_col = st.columns([2, 1])
+  
+  with left_col:
+      st.markdown('<div class="card">', unsafe_allow_html=True)
+      if st.session_state.processed and uploaded_file is not None:
+          st.info("Processing uploaded file...")
+          try:
+              st.write("Debug: Starting build_dataset with city:", city, "lat:", lat, "lon:", lon)
+              df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
+              st.write("Debug: build_dataset completed, df_aq shape:", df_aq.shape if not df_aq.empty else "Empty")
+              if not df_aq.empty:
+                  st.write(f"**Dataset Summary**: {meta['records']} records, {meta['unique_stations']} unique stations")
+                  st.write("**Stations**:", df_aq['location_name'].unique().tolist())
+                  save_datasets(df_aq, "delhi_aq_data")
+                  save_datasets(meta, "delhi_meta_data")
+                  consolidate_dataset(df_aq, meta, "delhi_environmental_data")
+                  st.success("✅ Dataset processing complete.")
 
                    # --- Data Cleaning ---
                         if st.session_state.df_filtered is None:
