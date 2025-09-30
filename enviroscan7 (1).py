@@ -9,8 +9,14 @@ from datetime import datetime, timezone, timedelta
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split, KFold, cross_validate
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
-                             confusion_matrix, classification_report)
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    classification_report,
+)
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
@@ -36,7 +42,7 @@ EMAIL_CONFIG = {
     "password": "ryrl xtng ocix nvbn",
     "receiver": "danger49491358@gmail.com",
     "server": "smtp.gmail.com",
-    "port": 587
+    "port": 587,
 }
 
 # --- Custom CSS ---
@@ -117,17 +123,23 @@ st.markdown(
     }
     .insight-box {
         background-color: #e8f5e9;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         margin-top: 10px;
+        font-family: 'Arial', sans-serif;
+        color: #2e7d32;
     }
     .insight-box h4 {
-        color: #2e7d32;
-        margin-bottom: 5px;
+        color: #1b5e20;
+        font-size: 1.5em;
+        margin-bottom: 10px;
+        border-bottom: 2px solid #2e7d32;
+        padding-bottom: 5px;
     }
     .insight-box p {
-        margin-bottom: 10px;
+        margin: 5px 0;
+        line-height: 1.5;
     }
     </style>
     """,
@@ -398,158 +410,176 @@ def create_folium_map(
             if row["aqi_proxy"] <= 200
             else "red"
         )
-        folium.Marker(
-            location=[row["latitude"], row["longitude"]],
-            popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
-            icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
-        ).add_to(m)
+        if row["location_name"] == "Pusa Delhi":
+            popup_html = f"""
+            <div style="width: 200px;">
+                <h4>{row['location_name']}</h4>
+                <p>AQI Proxy: {row['aqi_proxy']:.2f}</p>
+                <p>Source: {row['pollution_source']}</p>
+                <button onclick="window.parent.postMessage({{type: 'showInsight', source: '{row['pollution_source']}'}}, '*')">Show Insights</button>
+            </div>
+            """
+            iframe = folium.IFrame(popup_html, width=200, height=100)
+            popup = folium.Popup(iframe, max_width=200)
+            folium.Marker(
+                location=[row["latitude"], row["longitude"]],
+                popup=popup,
+                icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
+            ).add_to(m)
+        else:
+            folium.Marker(
+                location=[row["latitude"], row["longitude"]],
+                popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
+                icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
+            ).add_to(m)
 
     return m
 
 # --- Streamlit App ---
-def main():
-    st.markdown("<h1 style='text-align: center;'>Enviroscan Dashboard 🌱</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>Enviroscan Dashboard 🌱</h1>", unsafe_allow_html=True)
 
-    # --- Session State Initialization ---
-    if "df_filtered" not in st.session_state:
-        st.session_state.df_filtered = None
-    if "processed" not in st.session_state:
-        st.session_state.processed = False
+# --- Session State Initialization ---
+if "df_filtered" not in st.session_state:
+    st.session_state.df_filtered = None
+if "processed" not in st.session_state:
+    st.session_state.processed = False
+if "selected_source" not in st.session_state:
+    st.session_state.selected_source = None
 
-    # --- Sidebar for Inputs ---
-    with st.sidebar:
-        st.markdown("<h2 style='color: #2e7d32;'>📊 Control Panel</h2>", unsafe_allow_html=True)
-        with st.expander("Input Parameters", expanded=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                city = st.text_input("City", value="Delhi", key="city_input", help="Enter the city name")
-            with col2:
-                lat = st.number_input("Latitude", value=28.7041, format="%.4f", key="lat_input", help="Enter latitude")
-            with col3:
-                lon = st.number_input("Longitude", value=77.1025, format="%.4f", key="lon_input", help="Enter longitude")
+# --- Sidebar for Inputs ---
+with st.sidebar:
+    st.markdown("<h2 style='color: #2e7d32;'>📊 Control Panel</h2>", unsafe_allow_html=True)
+    with st.expander("Input Parameters", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            city = st.text_input("City", value="Delhi", key="city_input", help="Enter the city name")
+        with col2:
+            lat = st.number_input("Latitude", value=28.7041, format="%.4f", key="lat_input", help="Enter latitude")
+        with col3:
+            lon = st.number_input("Longitude", value=77.1025, format="%.4f", key="lon_input", help="Enter longitude")
 
-        with st.expander("Time Range", expanded=True):
-            col4, col5 = st.columns(2)
-            with col4:
-                start_date = st.date_input(
-                    "Start Date", value=datetime(2025, 9, 1), key="start_date", help="Select start date"
-                )
-            with col5:
-                end_date = st.date_input(
-                    "End Date", value=datetime(2025, 9, 15), key="end_date", help="Select end date"
-                )
-            time_range = f"{start_date} to {end_date}"
+    with st.expander("Time Range", expanded=True):
+        col4, col5 = st.columns(2)
+        with col4:
+            start_date = st.date_input(
+                "Start Date", value=datetime(2025, 9, 1), key="start_date", help="Select start date"
+            )
+        with col5:
+            end_date = st.date_input(
+                "End Date", value=datetime(2025, 9, 15), key="end_date", help="Select end date"
+            )
+        time_range = f"{start_date} to {end_date}"
 
-        uploaded_file = st.file_uploader(
-            "Upload CSV File", type=["csv"], key="file_uploader", help="Upload your environmental data CSV"
-        )
-        if st.button("Process Data", key="process_button"):
-            if uploaded_file:
-                st.session_state.processed = True
-                st.session_state.df_filtered = None
-                st.success("Data processing initiated...")
-            else:
-                st.warning("Please upload a CSV file.")
+    uploaded_file = st.file_uploader(
+        "Upload CSV File", type=["csv"], key="file_uploader", help="Upload your environmental data CSV"
+    )
+    if st.button("Process Data", key="process_button"):
+        if uploaded_file:
+            st.session_state.processed = True
+            st.session_state.df_filtered = None
+            st.success("Data processing initiated...")
+        else:
+            st.warning("Please upload a CSV file.")
 
-    # --- Main Dashboard Layout ---
-    left_col, right_col = st.columns([2, 1])
+# --- Main Dashboard Layout ---
+left_col, right_col = st.columns([2, 1])
 
-    with left_col:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if st.session_state.processed and uploaded_file is not None:
-            st.info("Processing uploaded file...")
-            try:
-                st.write("Debug: Starting build_dataset with city:", city, "lat:", lat, "lon:", lon)
-                df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
-                st.write("Debug: build_dataset completed, df_aq shape:", df_aq.shape if not df_aq.empty else "Empty")
-                if not df_aq.empty:
-                    st.write(f"**Dataset Summary**: {meta['records']} records, {meta['unique_stations']} unique stations")
-                    st.write("**Stations**:", df_aq["location_name"].unique().tolist())
-                    save_datasets(df_aq, "delhi_aq_data")
-                    save_datasets(meta, "delhi_meta_data")
-                    consolidate_dataset(df_aq, meta, "delhi_environmental_data")
-                    st.success("✅ Dataset processing complete.")
+with left_col:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    if st.session_state.processed and uploaded_file is not None:
+        st.info("Processing uploaded file...")
+        try:
+            st.write("Debug: Starting build_dataset with city:", city, "lat:", lat, "lon:", lon)
+            df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
+            st.write("Debug: build_dataset completed, df_aq shape:", df_aq.shape if not df_aq.empty else "Empty")
+            if not df_aq.empty:
+                st.write(f"**Dataset Summary**: {meta['records']} records, {meta['unique_stations']} unique stations")
+                st.write("**Stations**:", df_aq["location_name"].unique().tolist())
+                save_datasets(df_aq, "delhi_aq_data")
+                save_datasets(meta, "delhi_meta_data")
+                consolidate_dataset(df_aq, meta, "delhi_environmental_data")
+                st.success("✅ Dataset processing complete.")
 
-                    # --- Data Cleaning ---
-                    if st.session_state.df_filtered is None:
-                        with st.spinner("Cleaning data..."):
-                            df = pd.read_csv("delhi_environmental_data.csv")
-                            st.write("Debug: Loaded df shape:", df.shape)
-                            st.write("**Columns in DataFrame**:", df.columns.tolist())
-                            df["datetimeUtc"] = pd.to_datetime(df["datetimeUtc"], errors="coerce")
-                            df_filtered = df[
-                                (df["datetimeUtc"].dt.date >= start_date) & (df["datetimeUtc"].dt.date <= end_date)
+                # --- Data Cleaning ---
+                if st.session_state.df_filtered is None:
+                    with st.spinner("Cleaning data..."):
+                        df = pd.read_csv("delhi_environmental_data.csv")
+                        st.write("Debug: Loaded df shape:", df.shape)
+                        st.write("**Columns in DataFrame**:", df.columns.tolist())
+                        df["datetimeUtc"] = pd.to_datetime(df["datetimeUtc"], errors="coerce")
+                        df_filtered = df[
+                            (df["datetimeUtc"].dt.date >= start_date) & (df["datetimeUtc"].dt.date <= end_date)
+                        ]
+                        if df_filtered.empty:
+                            st.warning("No data available for the selected time range. Showing all data.")
+                            df_filtered = df.copy()
+
+                        pollutant_cols = [col for col in POLLUTANTS if col in df_filtered.columns]
+                        for col in pollutant_cols:
+                            df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
+                        weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
+                        for col in weather_cols:
+                            if col in df_filtered.columns:
+                                df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
+                        for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
+                            df_filtered[col] = df_filtered.get(col, 0)
+
+                        if pollutant_cols:
+                            df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
+                        else:
+                            df_filtered["aqi_proxy"] = 0
+                            st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
+                        if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
+                            df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
+                        else:
+                            df_filtered["pollution_per_road"] = np.nan
+                            st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
+
+                        df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
+                            lambda x: "Good"
+                            if pd.notna(x) and x <= 50
+                            else "Moderate"
+                            if pd.notna(x) and x <= 100
+                            else "Unhealthy"
+                            if pd.notna(x) and x <= 200
+                            else "Hazardous"
+                        )
+                        if all(
+                            col in df_filtered.columns
+                            for col in ["pm25", "roads_count", "industries_count", "farms_count"]
+                        ):
+                            df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
+                        else:
+                            st.warning("⚠️ Required columns for labeling pollution_source are missing.")
+                            df_filtered["pollution_source"] = "Unknown"
+
+                        num_cols = [
+                            col
+                            for col in [
+                                "pm25",
+                                "pm10",
+                                "no2",
+                                "co",
+                                "so2",
+                                "o3",
+                                "roads_count",
+                                "industries_count",
+                                "farms_count",
+                                "dumps_count",
+                                "aqi_proxy",
+                                "pollution_per_road",
                             ]
-                            if df_filtered.empty:
-                                st.warning("No data available for the selected time range. Showing all data.")
-                                df_filtered = df.copy()
-
-                            pollutant_cols = [col for col in POLLUTANTS if col in df_filtered.columns]
-                            for col in pollutant_cols:
-                                df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
-                            weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
-                            for col in weather_cols:
-                                if col in df_filtered.columns:
-                                    df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
-                            for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
-                                df_filtered[col] = df_filtered.get(col, 0)
-
-                            if pollutant_cols:
-                                df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
-                            else:
-                                df_filtered["aqi_proxy"] = 0
-                                st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
-                            if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
-                                df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
-                            else:
-                                df_filtered["pollution_per_road"] = np.nan
-                                st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
-
-                            df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
-                                lambda x: "Good"
-                                if pd.notna(x) and x <= 50
-                                else "Moderate"
-                                if pd.notna(x) and x <= 100
-                                else "Unhealthy"
-                                if pd.notna(x) and x <= 200
-                                else "Hazardous"
-                            )
-                            if all(
-                                col in df_filtered.columns
-                                for col in ["pm25", "roads_count", "industries_count", "farms_count"]
-                            ):
-                                df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
-                            else:
-                                st.warning("⚠️ Required columns for labeling pollution_source are missing.")
-                                df_filtered["pollution_source"] = "Unknown"
-
-                            num_cols = [
-                                col
-                                for col in [
-                                    "pm25",
-                                    "pm10",
-                                    "no2",
-                                    "co",
-                                    "so2",
-                                    "o3",
-                                    "roads_count",
-                                    "industries_count",
-                                    "farms_count",
-                                    "dumps_count",
-                                    "aqi_proxy",
-                                    "pollution_per_road",
-                                ]
-                                + weather_cols
-                                if col in df_filtered.columns
-                            ]
-                            scaler = StandardScaler()
-                            df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
-                            categorical_cols = [col for col in ["city", "aqi_category"] if col in df_filtered.columns]
-                            if categorical_cols:
-                                df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
-                            df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
-                            st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
-                            st.session_state.df_filtered = df_filtered
+                            + weather_cols
+                            if col in df_filtered.columns
+                        ]
+                        scaler = StandardScaler()
+                        df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
+                        categorical_cols = [col for col in ["city", "aqi_category"] if col in df_filtered.columns]
+                        if categorical_cols:
+                            df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
+                        df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
+                        st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+                        st.session_state.df_filtered = df_filtered
                 else:
                     st.warning("No data processed from the uploaded file.")
             except Exception as e:
@@ -778,68 +808,90 @@ def main():
             st.warning("Please upload a CSV file and click 'Process Data' to start.")
             st.markdown("</div>", unsafe_allow_html=True)
 
-    with right_col:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🌍 Pollution Source Insights")
-        tab1, tab2, tab3, tab4 = st.tabs(["Industrial", "Traffic", "Agricultural", "Mixed/Other"])
-
-        with tab1:
+with right_col:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("🌍 Pollution Insights")
+    if st.session_state.selected_source:
+        if st.session_state.selected_source == "Industrial":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 """
-                **Type of Pollutant**: Chemical (e.g., sulfur dioxide, heavy metals) and particulate matter (PM2.5, PM10).
-                **Medium**: Primarily air, with some water and soil contamination from industrial runoff.
-                **Health Problems**: Respiratory issues (e.g., bronchitis), cardiovascular diseases, lung cancer, skin irritation.
-                **Remedies & Precautions**: Install scrubbers and filters in factories, enforce strict emission standards, use protective gear (masks, gloves), promote green belts around industrial zones, regular health check-ups.
-                **Environmental Impact**: Acid rain, ecosystem degradation, biodiversity loss.
-                **Global Example**: The Great Smog of London (1952) reduced emissions via the Clean Air Act.
-                **Preventive Tips**: Avoid proximity during peak production, support sustainable industries.
+                <h4>Industrial Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Chemical pollutants (e.g., sulfur dioxide, heavy metals) and fine particulate matter (PM2.5, PM10).</p>
+                <p><strong>Medium:</strong> Mainly airborne, with potential water and soil contamination from industrial runoff.</p>
+                <p><strong>Health Risks:</strong> Chronic respiratory conditions (e.g., asthma, bronchitis), heart disease, increased cancer risk, and skin disorders.</p>
+                <p><strong>Mitigation Strategies:</strong> Deploy advanced filtration systems, enforce stringent emission controls, use personal protective equipment, establish green buffers, and conduct regular health screenings.</p>
+                <p><strong>Environmental Effects:</strong> Acid rain, habitat destruction, and significant biodiversity decline.</p>
+                <p><strong>Global Case Study:</strong> The 1952 Great Smog of London led to the Clean Air Act, drastically reducing industrial emissions.</p>
+                <p><strong>Prevention Advice:</strong> Minimize exposure during industrial peak times, advocate for eco-friendly industrial practices.</p>
                 """,
                 unsafe_allow_html=True,
             )
-
-        with tab2:
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif st.session_state.selected_source == "Traffic":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 """
-                **Type of Pollutant**: Aerial (e.g., nitrogen oxides, carbon monoxide) and particulate matter.
-                **Medium**: Air, with minor soil deposition from exhaust.
-                **Health Problems**: Asthma, allergies, reduced lung function, heart attacks, cognitive decline in children.
-                **Remedies & Precautions**: Promote electric vehicles, improve public transport, carpooling, use air purifiers indoors, avoid heavy traffic zones.
-                **Environmental Impact**: Smog formation, ozone depletion, climate change contribution.
-                **Global Example**: Los Angeles reduced traffic pollution with strict vehicle emission laws.
-                **Preventive Tips**: Check air quality indexes daily, limit outdoor exercise during high pollution.
+                <h4>Traffic Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Gaseous emissions (e.g., nitrogen oxides, carbon monoxide) and particulate matter.</p>
+                <p><strong>Medium:</strong> Predominantly air, with minor soil impact from exhaust residues.</p>
+                <p><strong>Health Risks:</strong> Asthma exacerbation, allergic reactions, reduced lung capacity, cardiovascular issues, and developmental delays in children.</p>
+                <p><strong>Mitigation Strategies:</strong> Encourage electric vehicle adoption, enhance public transit systems, promote carpooling, use indoor air purifiers, and avoid congested areas.</p>
+                <p><strong>Environmental Effects:</strong> Smog development, ozone layer thinning, and contributions to climate change.</p>
+                <p><strong>Global Case Study:</strong> Los Angeles implemented strict vehicle emission regulations to combat traffic pollution.</p>
+                <p><strong>Prevention Advice:</strong> Monitor daily air quality indices, limit outdoor activities during peak traffic pollution.</p>
                 """,
                 unsafe_allow_html=True,
             )
-
-        with tab3:
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif st.session_state.selected_source == "Agricultural":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 """
-                **Type of Pollutant**: Chemical (e.g., pesticides, ammonia) and biological (e.g., manure gases).
-                **Medium**: Air, water (runoff), and soil.
-                **Health Problems**: Respiratory infections, neurological disorders, waterborne diseases, skin rashes.
-                **Remedies & Precautions**: Use organic farming, manage livestock waste, install water treatment systems, wear protective clothing during farming.
-                **Environmental Impact**: Eutrophication of water bodies, soil degradation, loss of pollinators.
-                **Global Example**: The Netherlands uses precision agriculture to minimize runoff.
-                **Preventive Tips**: Consume locally sourced organic produce, avoid contaminated water sources.
+                <h4>Agricultural Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Chemical agents (e.g., pesticides, ammonia) and biological emissions (e.g., methane from livestock).</p>
+                <p><strong>Medium:</strong> Air, water (via runoff), and soil.</p>
+                <p><strong>Health Risks:</strong> Respiratory infections, neurological damage, waterborne illnesses, and dermatological conditions.</p>
+                <p><strong>Mitigation Strategies:</strong> Adopt organic farming techniques, manage animal waste effectively, install water purification systems, and use protective clothing.</p>
+                <p><strong>Environmental Effects:</strong> Eutrophication in aquatic systems, soil erosion, and pollinator population decline.</p>
+                <p><strong>Global Case Study:</strong> The Netherlands employs precision agriculture to reduce agricultural runoff.</p>
+                <p><strong>Prevention Advice:</strong> Prefer organic local produce, avoid using contaminated water sources.</p>
                 """,
                 unsafe_allow_html=True,
             )
-
-        with tab4:
+            st.markdown("</div>", unsafe_allow_html=True)
+        elif st.session_state.selected_source == "Mixed/Other":
+            st.markdown(
+                '<div class="insight-box">',
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 """
-                **Type of Pollutant**: Mixed (chemical, aerial, biological) depending on sources.
-                **Medium**: Air, water, and soil in varying degrees.
-                **Health Problems**: Chronic fatigue, immune system weakening, multiple organ issues, cancer risk.
-                **Remedies & Precautions**: Conduct regular environmental audits, use hybrid mitigation (filters, waste management), public awareness campaigns, personal protective equipment.
-                **Environmental Impact**: Unpredictable ecosystem shifts, cumulative pollution effects.
-                **Global Example**: Beijing’s mixed pollution tackled with multi-source regulations.
-                **Preventive Tips**: Monitor local pollution levels, support community clean-up drives.
+                <h4>Mixed Pollution Insights</h4>
+                <p><strong>Type of Pollutant:</strong> Combination of chemical, gaseous, and biological pollutants based on multiple sources.</p>
+                <p><strong>Medium:</strong> Air, water, and soil, varying by source mix.</p>
+                <p><strong>Health Risks:</strong> Chronic fatigue, weakened immunity, multi-organ damage, and elevated cancer risk.</p>
+                <p><strong>Mitigation Strategies:</strong> Regular environmental assessments, integrated pollution control (e.g., filters, waste management), community education, and protective gear usage.</p>
+                <p><strong>Environmental Effects:</strong> Erratic ecosystem changes and cumulative pollution impacts.</p>
+                <p><strong>Global Case Study:</strong> Beijing addressed mixed pollution through comprehensive multi-source regulations.</p>
+                <p><strong>Prevention Advice:</strong> Track local pollution levels, participate in community cleanup initiatives.</p>
                 """,
                 unsafe_allow_html=True,
             )
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="insight-box"><p>Click a marker (e.g., Pusa Delhi) to view pollution insights.</p></div>', unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
