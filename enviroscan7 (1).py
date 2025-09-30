@@ -465,16 +465,29 @@ if st.session_state.processed and uploaded_file:
 
         # --- Alerts ---
         with st.expander("🚨 Real-Time Alerts", expanded=False):
+            alert_found = False
+            st.write("**Monitoring Thresholds**:", THRESHOLDS)
             for pollutant, threshold in THRESHOLDS.items():
                 if pollutant in df_filtered.columns:
+                    st.write(f"**Checking {pollutant.upper()}** (Threshold: {threshold})")
                     exceedances = df_filtered[df_filtered[pollutant] > threshold]
                     if not exceedances.empty:
+                        alert_found = True
                         st.error(f"**Alert**: {pollutant.upper()} exceeds threshold ({threshold}) at {len(exceedances)} records!")
-                        st.dataframe(exceedances[['location_name', 'datetimeUtc', pollutant]])
+                        st.dataframe(exceedances[['location_name', 'datetimeUtc', pollutant]].style.format({pollutant: "{:.2f}"}))
                         for _, row in exceedances.groupby(['location_name', pollutant]).first().reset_index().iterrows():
                             if send_email_alert(pollutant, row[pollutant], row['location_name'], threshold):
                                 st.success(f"Email alert sent for {pollutant.upper()} at {row['location_name']}")
-
+                    else:
+                        st.write(f"No {pollutant.upper()} exceedances detected.")
+                else:
+                    st.warning(f"⚠️ {pollutant.upper()} data not available in the dataset.")
+      
+          if not alert_found:
+              st.warning("No alerts triggered. Check if pollutant levels exceed thresholds or if data is available.")
+              st.write("**Sample Data Preview for Debugging**:")
+              sample_data = df_filtered[POLLUTANTS + ['location_name', 'datetimeUtc']].head(5)
+              st.dataframe(sample_data.style.format({p: "{:.2f}" for p in POLLUTANTS}))
         # --- Visual Components ---
         with st.expander("📊 Visualizations", expanded=True):
             st.subheader("Pollutant Trends")
