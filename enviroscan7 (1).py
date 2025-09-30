@@ -434,11 +434,17 @@ def main():
                 start_date = st.date_input(
                     "Start Date", value=datetime(2025, 9, 1), key="start_date", help="Select start date"
                 )
+                start_time = st.time_input(
+                    "Start Time", value=datetime.strptime("00:00", "%H:%M").time(), key="start_time", help="Select start time"
+                )
             with col5:
                 end_date = st.date_input(
                     "End Date", value=datetime(2025, 9, 15), key="end_date", help="Select end date"
                 )
-            time_range = f"{start_date} to {end_date}"
+                end_time = st.time_input(
+                    "End Time", value=datetime.strptime("23:59", "%H:%M").time(), key="end_time", help="Select end time"
+                )
+            time_range = f"{start_date} {start_time} to {end_date} {end_time}"
 
         uploaded_file = st.file_uploader(
             "Upload CSV File", type=["csv"], key="file_uploader", help="Upload your environmental data CSV"
@@ -477,8 +483,10 @@ def main():
                             st.write("Debug: Loaded df shape:", df.shape)
                             st.write("**Columns in DataFrame**:", df.columns.tolist())
                             df["datetimeUtc"] = pd.to_datetime(df["datetimeUtc"], errors="coerce")
+                            start_datetime = pd.Timestamp.combine(start_date, start_time)
+                            end_datetime = pd.Timestamp.combine(end_date, end_time)
                             df_filtered = df[
-                                (df["datetimeUtc"].dt.date >= start_date) & (df["datetimeUtc"].dt.date <= end_date)
+                                (df["datetimeUtc"] >= start_datetime) & (df["datetimeUtc"] <= end_datetime)
                             ]
                             if df_filtered.empty:
                                 st.warning("No data available for the selected time range. Showing all data.")
