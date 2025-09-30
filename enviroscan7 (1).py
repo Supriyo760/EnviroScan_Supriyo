@@ -242,7 +242,7 @@ with st.sidebar:
         else:
             st.warning("Please upload a CSV file and click 'Process Data' to start.")
     
-        `     st.markdown('</div>', unsafe_allow_html=True)
+              st.markdown('</div>', unsafe_allow_html=True)
               # --- Preview Section ---
               with st.expander("📋 Data Preview", expanded=True):
                   st.write("**Unique Stations**:", df_filtered['location_name'].nunique())
