@@ -181,78 +181,78 @@ with st.sidebar:
                     st.success("✅ Dataset processing complete.")
 
                    # --- Data Cleaning ---
-                  if st.session_state.df_filtered is None:
-                      with st.spinner("Cleaning data..."):
-                          df = pd.read_csv("delhi_environmental_data.csv")
-                          st.write("Debug: Loaded df shape:", df.shape)
-                          st.write("**Columns in DataFrame**:", df.columns.tolist())
-                          df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'], errors='coerce')
-                          df_filtered = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
-                          if df_filtered.empty:
-                              st.warning("No data available for the selected time range. Showing all data.")
-                              df_filtered = df.copy()
-  
-                          pollutant_cols = [col for col in POLLUTANTS if col in df_filtered.columns]
-                          for col in pollutant_cols:
-                              df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
-                          weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
-                          for col in weather_cols:
-                              if col in df_filtered.columns:
-                                  df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
-                          for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
-                              df_filtered[col] = df_filtered.get(col, 0)
-  
-                          if pollutant_cols:
-                              df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
-                          else:
-                              df_filtered["aqi_proxy"] = 0
-                              st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
-                          if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
-                              df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
-                          else:
-                              df_filtered["pollution_per_road"] = np.nan
-                              st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
-  
-                          df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
-                              lambda x: "Good" if pd.notna(x) and x <= 50 else
-                                        "Moderate" if pd.notna(x) and x <= 100 else
-                                        "Unhealthy" if pd.notna(x) and x <= 200 else "Hazardous")
-                          if all(col in df_filtered.columns for col in ["pm25", "roads_count", "industries_count", "farms_count"]):
-                              df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
-                          else:
-                              st.warning("⚠️ Required columns for labeling pollution_source are missing.")
-                              df_filtered["pollution_source"] = "Unknown"
-  
-                          num_cols = [col for col in ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count",
-                                                      "industries_count", "farms_count", "dumps_count", "aqi_proxy",
-                                                      "pollution_per_road"] + weather_cols if col in df_filtered.columns]
-                          scaler = StandardScaler()
-                          df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
-                          categorical_cols = [col for col in ["city", "aqi_category"] if col in df_filtered.columns]
-                          if categorical_cols:
-                              df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
-                          df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
-                          st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
-                          st.session_state.df_filtered = df_filtered
-              else:
-                  st.warning("No data processed from the uploaded file.")
-          except Exception as e:
-              st.error(f"Error processing dataset: {str(e)}")
-              st.write("Debug: Exception occurred, check logs for details.")
-      else:
-          st.warning("Please upload a CSV file and click 'Process Data' to start.")
-  
-      st.markdown('</div>', unsafe_allow_html=True)
-            # --- Preview Section ---
-            with st.expander("📋 Data Preview", expanded=True):
-                st.write("**Unique Stations**:", df_filtered['location_name'].nunique())
-                st.write("**Stations**:", df_filtered['location_name'].unique().tolist())
-                if not df_filtered.empty:
-                    preview_df = df_filtered.groupby('location_name').head(2).reset_index(drop=True)
-                    st.dataframe(preview_df.style.format({"aqi_proxy": "{:.2f}"}))
-                    st.write(f"Displaying up to 2 rows per station. Total stations: {df_filtered['location_name'].nunique()}")
+                    if st.session_state.df_filtered is None:
+                        with st.spinner("Cleaning data..."):
+                            df = pd.read_csv("delhi_environmental_data.csv")
+                            st.write("Debug: Loaded df shape:", df.shape)
+                            st.write("**Columns in DataFrame**:", df.columns.tolist())
+                            df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'], errors='coerce')
+                            df_filtered = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
+                            if df_filtered.empty:
+                                st.warning("No data available for the selected time range. Showing all data.")
+                                df_filtered = df.copy()
+    
+                            pollutant_cols = [col for col in POLLUTANTS if col in df_filtered.columns]
+                            for col in pollutant_cols:
+                                df_filtered[col] = df_filtered[col].fillna(df_filtered[col].median())
+                            weather_cols = ["temp_c", "humidity", "pressure", "wind_speed", "wind_dir"]
+                            for col in weather_cols:
+                                if col in df_filtered.columns:
+                                    df_filtered[col] = df_filtered[col].fillna(df_filtered[col].mean())
+                            for col in ["roads_count", "industries_count", "farms_count", "dumps_count"]:
+                                df_filtered[col] = df_filtered.get(col, 0)
+    
+                            if pollutant_cols:
+                                df_filtered["aqi_proxy"] = df_filtered[pollutant_cols].mean(axis=1, skipna=True)
+                            else:
+                                df_filtered["aqi_proxy"] = 0
+                                st.warning("⚠️ No pollutant columns found, aqi_proxy set to 0 for visualization")
+                            if "pm25" in df_filtered.columns and "roads_count" in df_filtered.columns:
+                                df_filtered["pollution_per_road"] = df_filtered["pm25"] / (df_filtered["roads_count"] + 1)
+                            else:
+                                df_filtered["pollution_per_road"] = np.nan
+                                st.warning("⚠️ pm25 or roads_count missing, skipping pollution_per_road")
+    
+                            df_filtered["aqi_category"] = df_filtered["aqi_proxy"].apply(
+                                lambda x: "Good" if pd.notna(x) and x <= 50 else
+                                          "Moderate" if pd.notna(x) and x <= 100 else
+                                          "Unhealthy" if pd.notna(x) and x <= 200 else "Hazardous")
+                            if all(col in df_filtered.columns for col in ["pm25", "roads_count", "industries_count", "farms_count"]):
+                                df_filtered["pollution_source"] = df_filtered.apply(label_source, axis=1)
+                            else:
+                                st.warning("⚠️ Required columns for labeling pollution_source are missing.")
+                                df_filtered["pollution_source"] = "Unknown"
+    
+                            num_cols = [col for col in ["pm25", "pm10", "no2", "co", "so2", "o3", "roads_count",
+                                                        "industries_count", "farms_count", "dumps_count", "aqi_proxy",
+                                                        "pollution_per_road"] + weather_cols if col in df_filtered.columns]
+                            scaler = StandardScaler()
+                            df_filtered[num_cols] = scaler.fit_transform(df_filtered[num_cols])
+                            categorical_cols = [col for col in ["city", "aqi_category"] if col in df_filtered.columns]
+                            if categorical_cols:
+                                df_filtered = pd.get_dummies(df_filtered, columns=categorical_cols, drop_first=True)
+                            df_filtered.to_csv("cleaned_environmental_data.csv", index=False)
+                            st.success("💾 Cleaned dataset saved as cleaned_environmental_data.csv")
+                            st.session_state.df_filtered = df_filtered
                 else:
-                    st.warning("No data available for preview.")
+                    st.warning("No data processed from the uploaded file.")
+            except Exception as e:
+                st.error(f"Error processing dataset: {str(e)}")
+                st.write("Debug: Exception occurred, check logs for details.")
+        else:
+            st.warning("Please upload a CSV file and click 'Process Data' to start.")
+    
+        st.markdown('</div>', unsafe_allow_html=True)
+              # --- Preview Section ---
+              with st.expander("📋 Data Preview", expanded=True):
+                  st.write("**Unique Stations**:", df_filtered['location_name'].nunique())
+                  st.write("**Stations**:", df_filtered['location_name'].unique().tolist())
+                  if not df_filtered.empty:
+                      preview_df = df_filtered.groupby('location_name').head(2).reset_index(drop=True)
+                      st.dataframe(preview_df.style.format({"aqi_proxy": "{:.2f}"}))
+                      st.write(f"Displaying up to 2 rows per station. Total stations: {df_filtered['location_name'].nunique()}")
+                  else:
+                      st.warning("No data available for preview.")
 
             # --- Alerts ---
             with st.expander("🚨 Real-Time Alerts", expanded=False):
