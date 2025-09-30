@@ -410,31 +410,59 @@ def create_folium_map(
             if row["aqi_proxy"] <= 200
             else "red"
         )
-        if row["location_name"] == "Pusa Delhi":
-            popup_html = f"""
-            <div style="width: 200px;">
-                <h4>{row['location_name']}</h4>
-                <p>AQI Proxy: {row['aqi_proxy']:.2f}</p>
-                <p>Source: {row['pollution_source']}</p>
-                <button onclick="window.parent.postMessage({{type: 'showInsight', source: '{row['pollution_source']}'}}, '*')">Show Insights</button>
-            </div>
-            """
-            iframe = folium.IFrame(popup_html, width=200, height=100)
-            popup = folium.Popup(iframe, max_width=200)
-            folium.Marker(
-                location=[row["latitude"], row["longitude"]],
-                popup=popup,
-                icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
-            ).add_to(m)
-        else:
-            folium.Marker(
-                location=[row["latitude"], row["longitude"]],
-                popup=f"{row['location_name']}<br>AQI Proxy: {row['aqi_proxy']:.2f}<br>Source: {row['pollution_source']}",
-                icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
-            ).add_to(m)
+        popup_content = f"""
+        <div style="width: 200px; font-family: Arial, sans-serif;">
+            <h4>{row['location_name']}</h4>
+            <p><strong>AQI Proxy:</strong> {row['aqi_proxy']:.2f}</p>
+            <p><strong>Source:</strong> {row['pollution_source']}</p>
+            {'<hr>' if row['pollution_source'] else ''}
+            {get_pollution_insight_html(row['pollution_source']) if row['pollution_source'] else '<p>No insights available.</p>'}
+        </div>
+        """
+        iframe = folium.IFrame(popup_content, width=200, height=200)
+        popup = folium.Popup(iframe, max_width=200)
+        folium.Marker(
+            location=[row["latitude"], row["longitude"]],
+            popup=popup,
+            icon=folium.Icon(color=severity_color, icon="cloud", prefix="fa"),
+        ).add_to(m)
 
     return m
 
+def get_pollution_insight_html(source):
+    if source == "Industrial":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> Chemical pollutants (e.g., SO2, heavy metals) and PM2.5/PM10.</p>
+            <p><strong>Health Risks:</strong> Asthma, heart disease, cancer risk.</p>
+            <p><strong>Mitigation:</strong> Advanced filters, emission controls.</p>
+        </div>
+        """
+    elif source == "Traffic":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> NOx, CO, particulate matter.</p>
+            <p><strong>Health Risks:</strong> Asthma, cardiovascular issues.</p>
+            <p><strong>Mitigation:</strong> Electric vehicles, carpooling.</p>
+        </div>
+        """
+    elif source == "Agricultural":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> Pesticides, ammonia, methane.</p>
+            <p><strong>Health Risks:</strong> Respiratory infections, waterborne illness.</p>
+            <p><strong>Mitigation:</strong> Organic farming, waste management.</p>
+        </div>
+        """
+    elif source == "Mixed/Other":
+        return """
+        <div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 5px;">
+            <p><strong>Type:</strong> Mixed chemical and biological pollutants.</p>
+            <p><strong>Health Risks:</strong> Multi-organ damage, fatigue.</p>
+            <p><strong>Mitigation:</strong> Integrated pollution control.</p>
+        </div>
+        """
+    return ""
 def main():
     # --- Streamlit App ---
     st.markdown("<h1 style='text-align: center;'>Enviroscan Dashboard 🌱</h1>", unsafe_allow_html=True)
@@ -885,9 +913,6 @@ def main():
                 )
                 st.markdown("</div>", unsafe_allow_html=True)
         else:
-            st.markdown('<div class="insight-box"><p>Click a marker (e.g., Pusa Delhi) to view pollution insights.</p></div>', unsafe_allow_html=True)
-
+            st.markdown('<div class="insight-box"><p>Click a marker on the map to view pollution insights.</p></div>', unsafe_allow_html=True)
+    
         st.markdown("</div>", unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
