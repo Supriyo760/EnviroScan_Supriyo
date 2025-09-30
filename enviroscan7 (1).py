@@ -420,7 +420,46 @@ with right_col:
 
     with tab1:
         st.markdown("""
-        **Type of Pollutant**: Chemical and particulate matter (e.g., heavy metals, volatile organic compounds).<grok-card data-id="7d2794" data-type="citation_card"></grok-card>
-        **Medium**: Air, water, soil.<grok-card data-id="4e0e1b" data-type="citation_card"></grok-card>
-        **Health Problems**: Respiratory diseases, asthma, cancer (e.g., leukemia), heart problems, infertility.<grok-card data-id="2c4b25" data-type="citation_card"></grok-card>
-        **Remedies & Precautions**: Emission controls, waste recycling, use masks/respirators, plant trees for natural filtration, enforce regulations.
+        **Type of Pollutant**: Chemical (e.g., sulfur dioxide, heavy metals) and particulate matter (PM2.5, PM10).
+        **Medium**: Primarily air, with some water and soil contamination from industrial runoff.
+        **Health Problems**: Respiratory issues (e.g., bronchitis), cardiovascular diseases, lung cancer, skin irritation.
+        **Remedies & Precautions**: Install scrubbers and filters in factories, enforce strict emission standards, use protective gear (masks, gloves), promote green belts around industrial zones, regular health check-ups.
+        **Environmental Impact**: Acid rain, ecosystem degradation, biodiversity loss.
+        **Global Example**: The Great Smog of London (1952) reduced emissions via the Clean Air Act.
+        **Preventive Tips**: Avoid proximity during peak production, support sustainable industries.
+        """, unsafe_allow_html=True)
+
+    with tab2:
+        st.markdown("""
+        **Type of Pollutant**: Aerial (e.g., nitrogen oxides, carbon monoxide) and particulate matter.
+        **Medium**: Air, with minor soil deposition from exhaust.
+        **Health Problems**: Asthma, allergies, reduced lung function, heart attacks, cognitive decline in children.
+        **Remedies & Precautions**: Promote electric vehicles, improve public transport, carpooling, use air purifiers indoors, avoid heavy traffic zones.
+        **Environmental Impact**: Smog formation, ozone depletion, climate change contribution.
+        **Global Example**: Los Angeles reduced traffic pollution with strict vehicle emission laws.
+        **Preventive Tips**: Check air quality indexes daily, limit outdoor exercise during high pollution.
+        """, unsafe_allow_html=True)
+
+    with tab3:
+        st.markdown("""
+        **Type of Pollutant**: Chemical (e.g., pesticides, ammonia) and biological (e.g., manure gases).
+        **Medium**: Air, water (runoff), and soil.
+        **Health Problems**: Respiratory infections, neurological disorders, waterborne diseases, skin rashes.
+        **Remedies & Precautions**: Use organic farming, manage livestock waste, install water treatment systems, wear protective clothing during farming.
+        **Environmental Impact**: Eutrophication of water bodies, soil degradation, loss of pollinators.
+        **Global Example**: The Netherlands uses precision agriculture to minimize runoff.
+        **Preventive Tips**: Consume locally sourced organic produce, avoid contaminated water sources.
+        """, unsafe_allow_html=True)
+
+    with tab4:
+        st.markdown("""
+        **Type of Pollutant**: Mixed (chemical, aerial, biological) depending on sources.
+        **Medium**: Air, water, and soil in varying degrees.
+        **Health Problems**: Chronic fatigue, immune system weakening, multiple organ issues, cancer risk.
+        **Remedies & Precautions**: Conduct regular environmental audits, use hybrid mitigation (filters, waste management), public awareness campaigns, personal protective equipment.
+        **Environmental Impact**: Unpredictable ecosystem shifts, cumulative pollution effects.
+        **Global Example**: Beijing’s mixed pollution tackled with multi-source regulations.
+        **Preventive Tips**: Monitor local pollution levels, support community clean-up drives.
+        """, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
