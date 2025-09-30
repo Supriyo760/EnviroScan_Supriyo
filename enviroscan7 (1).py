@@ -169,7 +169,9 @@ with left_col:
     if st.session_state.processed and uploaded_file is not None:
         st.info("Processing uploaded file...")
         try:
+            st.write("Debug: Starting build_dataset with city:", city, "lat:", lat, "lon:", lon)
             df_aq, meta = build_dataset(city, lat, lon, uploaded_file, OPENWEATHER_KEY)
+            st.write("Debug: build_dataset completed, df_aq shape:", df_aq.shape if not df_aq.empty else "Empty")
             if not df_aq.empty:
                 st.write(f"**Dataset Summary**: {meta['records']} records, {meta['unique_stations']} unique stations")
                 st.write("**Stations**:", df_aq['location_name'].unique().tolist())
@@ -182,6 +184,7 @@ with left_col:
                 if st.session_state.df_filtered is None:
                     with st.spinner("Cleaning data..."):
                         df = pd.read_csv("delhi_environmental_data.csv")
+                        st.write("Debug: Loaded df shape:", df.shape)
                         st.write("**Columns in DataFrame**:", df.columns.tolist())
                         df['datetimeUtc'] = pd.to_datetime(df['datetimeUtc'], errors='coerce')
                         df_filtered = df[(df['datetimeUtc'].dt.date >= start_date) & (df['datetimeUtc'].dt.date <= end_date)]
@@ -235,6 +238,7 @@ with left_col:
                 st.warning("No data processed from the uploaded file.")
         except Exception as e:
             st.error(f"Error processing dataset: {str(e)}")
+            st.write("Debug: Exception occurred, check logs for details.")
     else:
         st.warning("Please upload a CSV file and click 'Process Data' to start.")
 
